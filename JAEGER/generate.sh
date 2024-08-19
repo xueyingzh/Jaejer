@@ -1,0 +1,19 @@
+nohup python jaeger_generate.py --run_streamlit False --assay_id Novartis_GNF --cmpd GNF-Pf-1210 --smiles "C[C@@H](O)[C@@H]1OCC[C@@H](C)[C@H](O)C(=O)OC[C@]23CCC(C)=C[C@H]2O[C@@H]4C[C@@H](OC(=O)C=CC=C1)[C@@]3(C)[C@@]45CO5" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_1210.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=1 nohup python jaeger_generate.py --run_streamlit False --assay_id Novartis_GNF --cmpd GNF-Pf-1945 --smiles "CC1(C)N=C(N)N=C(N)N1C2=CC=C(Br)C=C2" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_1945.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=2 nohup python jaeger_generate.py --run_streamlit False --assay_id Novartis_GNF --cmpd GNF-Pf-2519 --smiles "CC1(C)N=C(N)N=C(N)N1C2=CC=C(Cl)C=C2" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_2519.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=3 nohup python jaeger_generate.py --run_streamlit False --assay_id Novartis_GNF --cmpd GNF-Pf-3788 --smiles "CNC1=C(N(CC2=CC=C(Cl)C(Cl)=C2)C(C)=O)C(=O)C3=CC=CC=C3C1=O" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_3788.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=4 nohup python jaeger_generate.py --run_streamlit False --assay_id Novartis_GNF --cmpd GNF-Pf-4216 --smiles "CCN(CC)CCCC(C)NC1=CC=NC2=CC(Cl)=CC=C12" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_4216.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=3 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-003399 --smiles "CNC(=O)C(Cc1ccc(-c2ccccc2O)cc1)n1c(=O)[nH]c2cc(C(=O)Nc3ccc(C)c(C)c3)ccc21" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_3399.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=5 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-005843 --smiles "CC(C)(C)Nc1ccc2cc(-c3cnc(C(F)(F)F)nc3)c(O)c(CCNC3(C)CCCCC3)c2n1" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_5843.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=6 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-005819 --smiles "CC(C)(C)Nc1ccc2cc(-c3cnc(C(F)(F)F)nc3)c(O)c(CCNC3(C)CCCC3)c2n1" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_5819.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=7 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-008234 --smiles "N#CC1(Nc2ccc(-c3c(F)cccc3CN)cc2)CC2(CCN(C(=O)Nc3ccc(C4CC4)cc3)C2)C1" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_8234.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=4 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-004626 --smiles "CC1CC(C)(C)N(C)c2c1cc(-c1cnc(C(F)(F)F)nc1)c(O)c2CCNC(C)(C)C" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_4626.log 2>&1 &
