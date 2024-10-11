@@ -16,9 +16,9 @@ limitations under the License.
 
 import importlib
 import sys
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
 import torch
 
 import numpy as np

@@ -214,9 +214,9 @@ class JTNNDecoder(nn.Module):
                 cur_h_nei = zero_pad
 
             cur_x = create_var(torch.LongTensor([node_x.wid]))
-            cur_x = self.embedding(cur_x)
+            cur_x = self.embedding(cur_x) # torch.Size([1, 420])
 
-            #Predict stop
+            #Predict stop, label: backtrack
             cur_h = cur_h_nei.sum(dim=1)
             stop_hidden = torch.cat([cur_x,cur_h,mol_vec], dim=1)
             stop_hidden = nn.ReLU()(self.U(stop_hidden))
@@ -227,8 +227,8 @@ class JTNNDecoder(nn.Module):
             else:
                 backtrack = (stop_score.item() < 0.5)
 
-            if not backtrack: #Forward: Predict next clique
-                new_h = GRU(cur_x, cur_h_nei, self.W_z, self.W_r, self.U_r, self.W_h)
+            if not backtrack: #Forward: Predict next clique line231-line234 paper论文公式12
+                new_h = GRU(cur_x, cur_h_nei, self.W_z, self.W_r, self.U_r, self.W_h) # torch.Size([1, 420])
                 pred_hidden = torch.cat([new_h,mol_vec], dim=1)
                 pred_hidden = nn.ReLU()(self.W(pred_hidden))
                 pred_score = nn.Softmax(dim=1)(self.W_o(pred_hidden) * 20)
@@ -242,7 +242,7 @@ class JTNNDecoder(nn.Module):
                 for wid in sort_wid[:5]:
                     slots = self.vocab.get_slots(wid)
                     node_y = MolTreeNode(self.vocab.get_smiles(wid))
-                    if have_slots(fa_slot, slots) and can_assemble(node_x, node_y):
+                    if have_slots(fa_slot, slots) and can_assemble(node_x, node_y): #如果可以拼装&有槽位，确定连接
                         next_wid = wid
                         next_slots = slots
                         break

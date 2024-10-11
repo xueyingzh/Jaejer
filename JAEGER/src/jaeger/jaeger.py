@@ -16,10 +16,10 @@ limitations under the License.
 
 NAME="JAEGER"
 TITLE="**JAEGER**: JT-VAE Generative Modeling"
-JAEGER_HOME="/mnt/disk1/xueying/code/mol-gen/JAEGER/models"
+JAEGER_HOME="/mnt/disk1/xueying/mol-gen/JAEGER/models"
 BASE_DIR=JAEGER_HOME+"/assays" 
 TRAINING_DIR=JAEGER_HOME+"/training_data"
-AVAIL_MODELS=JAEGER_HOME+"/mol-gen/JAEGER_avail_models.csv"
+AVAIL_MODELS=JAEGER_HOME+"/jaeger_avail_models.csv"
 
 ### JAEGER
 import pandas as pd
@@ -162,6 +162,9 @@ def load_avail_models():
 
 #@st.cache
 def compute_pca(embeddings):
+    '''
+    返回 PCA 对象、embeddings降维后的坐标 crds_pca、累积方差贡献率的坐标 var_coords 和每个主成分的方差贡献 var_explained
+    '''
     print('pca')
     print(type(embeddings), embeddings.shape)
     latent_size = embeddings.shape[1]

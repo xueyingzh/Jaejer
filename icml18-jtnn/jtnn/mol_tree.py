@@ -12,7 +12,7 @@ class Vocab(object):
     def __init__(self, smiles_list):
         self.vocab = smiles_list
         self.vmap = {x:i for i,x in enumerate(self.vocab)}
-        self.slots = [get_slots(smiles) for smiles in self.vocab]
+        self.slots = [get_slots(smiles) for smiles in self.vocab] # 遍历每个原子，并提取其符号、形式电荷和氢原子总数
         
     def get_index(self, smiles):
         return self.vmap[smiles]
@@ -31,19 +31,24 @@ class MolTreeNode(object):
     def __init__(self, smiles, clique=[]):
         self.smiles = smiles
         self.mol = get_mol(self.smiles)
-
+        # 本MolTreeNode对应clique的atom ID
         self.clique = [x for x in clique] #copy
+        # 在junction tree层面，通过edge相连的其他MolTreeNode
         self.neighbors = []
         
     def add_neighbor(self, nei_node):
         self.neighbors.append(nei_node)
 
     def recover(self, original_mol):
+        '''
+        分子树中恢复原始分子的结构，并为每个节点生成一个标签（SMILES字符串）。这个标签可以用于后续的分析或可视化
+        '''
         # print('MolTreeNode, smiles: ', self.smiles)
         clique = []
         clique.extend(self.clique)
         if not self.is_leaf:
             for cidx in self.clique:
+                # 为原始分子中对应索引的原子设置原子映射编号（AtomMapNum）为当前节点的nid
                 original_mol.GetAtomWithIdx(cidx).SetAtomMapNum(self.nid)
 
         for nei_node in self.neighbors:
@@ -52,6 +57,7 @@ class MolTreeNode(object):
                 continue
             for cidx in nei_node.clique:
                 #allow singleton node override the atom mapping
+                # 将clique中的原子的index，设置为node的ID（会重复）
                 if cidx not in self.clique or len(nei_node.clique) == 1:
                     atom = original_mol.GetAtomWithIdx(cidx)
                     atom.SetAtomMapNum(nei_node.nid)
@@ -67,6 +73,10 @@ class MolTreeNode(object):
         return self.label
     
     def assemble(self):
+        '''
+        从当前节点的邻居节点中筛选出可能的组装候选，并将它们存储在当前节点的cands和cand_mols成员中。这些候选可以用于后续的组装过程
+        '''
+        # 以下4行，按照neighbor的GetNumAtoms对整个neighbor进行了排序，为什么要如下操作而不是直接sort，猜想是增加sort的速度
         neighbors = [nei for nei in self.neighbors if nei.mol.GetNumAtoms() > 1]
         neighbors = sorted(neighbors, key=lambda x:x.mol.GetNumAtoms(), reverse=True)
         singletons = [nei for nei in self.neighbors if nei.mol.GetNumAtoms() == 1]
@@ -101,8 +111,9 @@ class MolTree(object):
         self.nodes = []
         root = 0
         for i,c in enumerate(cliques):
-            # try:
+            # 一个分子对象mol和一个原子索引列表atoms。函数的目的是从给定的分子中提取包含指定原子的子结构，并返回一个新的分子对象
             cmol = get_clique_mol(self.mol, c)
+            # c: atom index
             node = MolTreeNode(get_smiles(cmol), c)
             self.nodes.append(node)
             if min(c) == 0:

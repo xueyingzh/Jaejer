@@ -117,6 +117,7 @@ class JTPropVAE(nn.Module):
         z_log_var = torch.cat([tree_log_var,mol_log_var], dim=1)
         kl_loss = -0.5 * torch.sum(1.0 + z_log_var - z_mean * z_mean - torch.exp(z_log_var)) / batch_size
 
+        # create_var 用于创建 PyTorch 变量
         epsilon = create_var(torch.randn(batch_size, int(self.latent_size / 2)), False)
         tree_vec = tree_mean + torch.exp(tree_log_var / 2) * epsilon
         epsilon = create_var(torch.randn(batch_size, int(self.latent_size / 2)), False)
@@ -136,12 +137,18 @@ class JTPropVAE(nn.Module):
         return loss, kl_loss.item(), word_acc, topo_acc, assm_acc, stereo_acc, prop_loss.item()
 
     def assm(self, mol_batch, mol_vec, tree_mess):
+        # 实现了一个组装模型（assembly model），该模型用于预测分子树的节点如何连接
+        '''
+        通过计算候选分子与现有分子的相似度来预测分子树的节点如何连接。它首先收集候选分子及其相关信息，然后计算候选分子的向量表示，接着计算相似度分数，并最终计算损失和准确率。
+        '''
+        # 候选分子
         cands = []
         batch_idx = []
         for i,mol_tree in enumerate(mol_batch):
             for node in mol_tree.nodes:
                 #Leaf node's attachment is determined by neighboring node's attachment
                 if node.is_leaf or len(node.cands) == 1: continue
+                # 候选分子及其相关信息添加到cands列表中，并将批次索引添加到batch_idx列表中
                 cands.extend( [(cand, mol_tree.nodes, node) for cand in node.cand_mols] )
                 batch_idx.extend([i] * len(node.cands))
 
@@ -177,6 +184,9 @@ class JTPropVAE(nn.Module):
         return all_loss, acc * 1.0 / cnt
 
     def stereo(self, mol_batch, mol_vec):
+        '''
+        通过计算候选立体异构体与已知立体异构体的相似度来预测分子的立体化学。它首先收集候选立体异构体及其相关信息，然后计算候选立体异构体的向量表示，接着计算相似度分数，并最终计算损失和准确率。
+        '''
         stereo_cands,batch_idx = [],[]
         labels = []
         for i,mol_tree in enumerate(mol_batch):
@@ -306,7 +316,7 @@ class JTPropVAE(nn.Module):
             return smiles, 1.0, visited, l, tree_vec, mol_vec      
     
     def decode(self, tree_vec, mol_vec, prob_decode):
-        pred_root,pred_nodes = self.decoder.decode(tree_vec, prob_decode)
+        pred_root,pred_nodes = self.decoder.decode(tree_vec, prob_decode) # pred_root：MolTreeNode, pred_nodes: list of MolTreeNodes
 
         #Mark nid & is_leaf & atommap
         for i,node in enumerate(pred_nodes):
@@ -315,14 +325,14 @@ class JTPropVAE(nn.Module):
             if len(node.neighbors) > 1:
                 set_atommap(node.mol, node.nid)
 
-        tree_mess = self.jtnn([pred_root])[0]
+        tree_mess = self.jtnn([pred_root])[0] # root encoder
 
         cur_mol = copy_edit_mol(pred_root.mol)
         global_amap = [{}] + [{} for node in pred_nodes]
         global_amap[1] = {atom.GetIdx():atom.GetIdx() for atom in cur_mol.GetAtoms()}
 
         cur_mol = self.dfs_assemble(tree_mess, mol_vec, pred_nodes, cur_mol, global_amap, [], pred_root, None, prob_decode)
-        if cur_mol is None: 
+        if cur_mol is None:  # cur_mol: rdkit.Chem.rdchem.RWMol可编辑mol object
             return None
 
         cur_mol = cur_mol.GetMol()
@@ -331,7 +341,8 @@ class JTPropVAE(nn.Module):
         if cur_mol is None: return None
 
         smiles2D = Chem.MolToSmiles(cur_mol)
-        stereo_cands = decode_stereo(smiles2D)
+        # 处理手性问题
+        stereo_cands = decode_stereo(smiles2D) # list 手性化合物
         if len(stereo_cands) == 1: 
             return stereo_cands[0]
         stereo_vecs = self.mpn(mol2graph(stereo_cands))
@@ -341,6 +352,10 @@ class JTPropVAE(nn.Module):
         return stereo_cands[max_id.item()]
 
     def dfs_assemble(self, tree_mess, mol_vec, all_nodes, cur_mol, global_amap, fa_amap, cur_node, fa_node, prob_decode):
+        # tree_mess: tree root encoder, mol_vec: graph encoder vector
+        # all_nodes: all tree pred_nodes, cur_mol: tree root mol, rdkit.Chem.rdchem.RWMol允许修改的mol
+        # global_amap: atom map, fa_amap: 父节点atom map, cur_node:开始tree root encoder
+        # fa_node: 父节点, prob_decode：decode过程中是否需要计算概率
         fa_nid = fa_node.nid if fa_node is not None else -1
         prev_nodes = [fa_node] if fa_node is not None else []
 
@@ -361,7 +376,7 @@ class JTPropVAE(nn.Module):
         cand_vecs = self.jtmpn(cands, tree_mess)
         cand_vecs = self.G_mean(cand_vecs)
         mol_vec = mol_vec.squeeze()
-        scores = torch.mv(cand_vecs, mol_vec) * 20
+        scores = torch.mv(cand_vecs, mol_vec) * 20 # cand_vecs：torch.Size([71, 28])  mol_vec：torch.Size([28])
 
         if prob_decode:
             probs = nn.Softmax()(scores.view(1,-1)).squeeze() + 1e-5 #prevent prob = 0

@@ -16,9 +16,9 @@ limitations under the License.
 
 import importlib
 import sys
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
 
 import numpy as np
 import pandas as pd
@@ -160,7 +160,7 @@ def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_m
         vis = None
     else:   
         vis = Visualizations(
-            env_name="jtvae-train-"+str(assay_id), server=vis_host, port=8097
+            env_name="jtvae-train-"+str(assay_id), server=vis_host, port=8912
         )
 
     TRAIN_INFERENCE_MODEL = True

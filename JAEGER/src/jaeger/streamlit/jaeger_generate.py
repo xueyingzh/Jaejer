@@ -20,9 +20,9 @@ import time
 from itertools import compress
 
 import sys
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
 
 # --- JAEGER imports
 import jaeger as jgr
@@ -133,10 +133,11 @@ def decode(model, new_samples, show_st=False):
         if my_bar is not None:
             my_bar.progress((i + 1) / n_samples)
 
-        print_status(i, n_samples)
+        # print_status(i, n_samples)
         tree_vec, mol_vec = torch.chunk(new_samples[i].reshape(1,-1), 2, dim=1)
         more_smiles = model.decode(tree_vec, mol_vec, prob_decode=False)
         new_smiles.append(more_smiles)
+        # break
     return new_smiles
 
 
@@ -215,6 +216,19 @@ def search_new(
     predict_in_chem_space
 ):
     # --- compute samples
+    # toxdata trainset数据
+    # 和toxdata对应morgan fingerprint
+    # model jtvae model
+    # cmpd & smiles: seed compound smiles and its id
+    # directions & std_explained_tree: components_tree处理之后，components_tree：trainset embedding tree部分pca
+    # std_scale & n_steps: sample strategy search_extents = dict(Sparse=(1, 2), Dense=(0.5, 5), SuperDense=(0.25, 10), MegaDense=(0.1, 25))
+    # directions_graph & std_explained_graph: components_graph处理之后，components_graph：trainset embedding graph部分pca
+    # sim_cutoff：similarity filter
+    # cosine_cutoff: ((1 - sim_cutoff) * 2) + 0.2 if > 2 , cosine_cutoff = 2
+    # sel_direction：directions to sample，4 or 8 and so on
+    # search_strategy: "Select sampling strategy", list(["Deterministic", "DeterministicFullGraph"]
+    # filter_mols: 是否去除trainset
+    # direction: opt_direction
     with st.spinner('Computing samples ...'):
         print(search_strategy)
         if search_strategy == "Deterministic":
@@ -228,7 +242,7 @@ def search_new(
                 std_explained_graph[0] * std_scale,
                 n_steps,
                 cosine_cutoff,
-            )
+            ) # neighbors_vectors：len = 100, element0 = (56,) ,my_vector_local：len = 1, element0 = (56,) 起始点embedding
         elif search_strategy == "DeterministicFullGraph":
             neighbors_vectors, my_vector_local = get_neighbors_along_directions_tree_then_graph_complex(
                 model,
@@ -243,7 +257,7 @@ def search_new(
             )            
             
     # --- assign my_vector
-    my_vector = my_vector_local
+    my_vector = my_vector_local # shape (56,)
     
     
     # --- filter samples
@@ -252,7 +266,7 @@ def search_new(
         fit_samples, sample_stats, ref_stats = filter_samples(my_vector, neighbors_vectors, model, bypass=bypass, direction=direction)
            
     # --- decode samples
-    torch_samples = torch.from_numpy(np.array(fit_samples)).float().to(next(model.parameters()).device)
+    torch_samples = torch.from_numpy(np.array(fit_samples)).float().to(next(model.parameters()).device) # torch.Size([72, 56])
     neighbors_smiles = decode(model, torch_samples, True)
 
     # --- rename some variables
@@ -338,8 +352,16 @@ def get_neighbors_along_directions_tree_then_graph_simple(
     """
     In this function we iterate over the tree principal axes and a SINGLE principal graph axis.
     Returns NUMPY vectors (not Torch tensors)
+    model：用于嵌入分子的模型。
+    smiles：输入分子的SMILES表示。
+    directions：树状结构的主轴方向。 torch.Size([5, 28])
+    scale_factors：沿着树状结构主轴方向的缩放因子。
+    direction_graph：图状结构的主轴方向。
+    scale_factor_graph：沿着图状结构主轴方向的缩放因子。
+    n_neighbors：每个方向上要查找的邻居数量。
+    max_cosine_distance：最大余弦距离，用于筛选邻居。
     """
-    sample_latent = model.embed(smiles)
+    sample_latent = model.embed(smiles) # torch.Size([1, 56])
     n_directions = len(directions)
     new_samples = []
 
@@ -347,24 +369,24 @@ def get_neighbors_along_directions_tree_then_graph_simple(
     int_step_sizes = np.arange(-n_neighbors, n_neighbors + 1, 1) 
     idx = int_step_sizes == 0
     int_step_sizes = np.delete(int_step_sizes, np.where(idx)[0][0])
-    actual_n_neighbors = len(int_step_sizes)
+    actual_n_neighbors = len(int_step_sizes) # 4
 
     # graph steps (scaled directly here)
     step_sizes_graph = np.arange(-n_neighbors, n_neighbors + 1, 1) 
     step_sizes_graph = step_sizes_graph * scale_factor_graph 
 
-    actual_n_neighbors_graph = len(step_sizes_graph)
+    actual_n_neighbors_graph = len(step_sizes_graph) # 5
     cos = nn.CosineSimilarity(dim=1)
     for k in range(n_directions):  # iterate over axes
         step_sizes = int_step_sizes * scale_factors[k] 
         for i in range(actual_n_neighbors):  # iterate over steps along axis
             sample = get_neighbor_along_direction_tree(
                 sample_latent, directions[k], step_sizes[i]
-            )  # tree sample
+            )  # tree sample torch.Size([1, 56])
             for j in range(actual_n_neighbors_graph):  # iterate along graph axis
                 graph_sample = get_neighbor_along_direction_graph(
                     sample, direction_graph, step_sizes_graph[j] # uhh, here the graph variation is constant
-                )
+                ) # torch.Size([1, 56])
                 # check cosine
                 cdistance = 1 - cos(sample_latent, graph_sample)
                 if cdistance.item() < max_cosine_distance:
@@ -515,8 +537,8 @@ def search_app(
     
     
     # --- load embeddings for training data (TREX ONLY)
-    latent = get_embeddings(embeddings_csv_file)
-    embeddings = latent.values
+    latent = get_embeddings(embeddings_csv_file) # (5207, 56)
+    embeddings = latent.values # (5207, 56)
     subset_pca = False
 
 
@@ -524,24 +546,25 @@ def search_app(
     # joint pca
     reducer, crds_pca, _, var_explained = compute_pca(embeddings[:,:])
     std_explained = np.sqrt(var_explained)    
-    components = reducer.components_
+    components = reducer.components_ # (56, 56)
     
     # tree pca
     tree_dim = int(model_params["latent_size"] / 2)
     reducer_tree, crds_pca_tree, _, var_explained_tree = compute_pca(embeddings[:, 0:tree_dim])
     std_explained_tree = np.sqrt(var_explained_tree)
-    components_tree = reducer_tree.components_
+    components_tree = reducer_tree.components_ # (28, 28)
 
     # graph pca
     reducer_graph, _, _, var_explained_graph = compute_pca(embeddings[:, tree_dim:])
     std_explained_graph = np.sqrt(var_explained_graph)
-    components_graph = reducer_graph.components_
+    # reducer_graph.components_ 二维数组，包含了主成分的权重矩阵(28,28)
+    components_graph = reducer_graph.components_ # (28, 28)
 
     # --- set directions along PCs
     # directions are main components
-    directions = torch.from_numpy(components_tree).to(device).float()
-    directions_graph = torch.from_numpy(components_graph).to(device).float()
-    directions_graph_plus = directions[0]  # actually, tree direction in graph space. Was a fluke but generates interesting things
+    directions = torch.from_numpy(components_tree).to(device).float() # torch.Size([29, 28])
+    directions_graph = torch.from_numpy(components_graph).to(device).float() # torch.Size([28, 28])
+    directions_graph_plus = directions[0]  # torch.Size([28]) actually, tree direction in graph space. Was a fluke but generates interesting things
     # space returned some interesting compounds!
 
     # null direction on tree space (so we explore neighbors starting at
@@ -583,6 +606,7 @@ def search_app(
         cmpd = args.cmpd # now we require the SMILES to be passed, too
         smiles = args.smiles
 
+    # 前端画图
     svg = get_svg(smiles)
     render_svg(svg)
 

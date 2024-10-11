@@ -103,7 +103,7 @@ def derive_inference_model(
     beta=0.005,
     num_threads = 24,
     weight_decay = 0.000,
-    epoch = 1
+    epoch = 36
 ):
     from jtnn.jtprop_vae import JTPropVAE
 
@@ -114,7 +114,8 @@ def derive_inference_model(
     dataloader = data.DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
+        # shuffle=True,
+        shuffle=False,
         num_workers=num_threads,
         collate_fn=lambda x: x,
         drop_last=True,
@@ -138,7 +139,7 @@ def derive_inference_model(
         total_step_count,
         model_name,
         MAX_EPOCH=epoch,
-        PRINT_ITER=5,
+        PRINT_ITER=1,
     )
     # train (set a smaller initial LR, beta to  0.005)
     optimizer = optim.Adam(model.parameters(), lr=0.0003,weight_decay=weight_decay)
@@ -181,7 +182,7 @@ def cross_validate_jtvae(
         model_name,
         base_lr=0.003,
         vis_host=None,
-        vis_port=8097,
+        vis_port=8912,
         assay_name="",
         num_threads = 24,
         weight_decay = 0.0000
@@ -319,8 +320,8 @@ def pre_train_jtvae(
                 steo_acc = steo_acc / PRINT_ITER * 100
                 prop_acc = prop_acc / PRINT_ITER
                 if vis is not None:
-                    vis.plot_loss(word_acc, total_step_count, 1, model_name, "word-acc")
-                    vis.plot_loss(prop_acc, total_step_count, 1, model_name, "mse")
+                    vis.plot_loss(word_acc, total_step_count, 1, f"{model_name}_word_acc", "word-acc")
+                    vis.plot_loss(prop_acc, total_step_count, 1, f"{model_name}_prop_acc", "mse")
                 print(
                     "Epoch: %d, Step: %d, KL: %.1f, Word: %.2f, Topo: %.2f, Assm: %.2f, Steo: %.2f, Prop: %.4f"
                     % (

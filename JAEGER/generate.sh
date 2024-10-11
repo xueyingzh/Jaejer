@@ -17,3 +17,5 @@ CUDA_VISIBLE_DEVICES=6 nohup python jaeger_generate.py --run_streamlit False --a
 CUDA_VISIBLE_DEVICES=7 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-008234 --smiles "N#CC1(Nc2ccc(-c3c(F)cccc3CN)cc2)CC2(CCN(C(=O)Nc3ccc(C4CC4)cc3)C2)C1" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_8234.log 2>&1 &
 
 CUDA_VISIBLE_DEVICES=4 nohup python jaeger_generate.py --run_streamlit False --assay_id antimalaria --cmpd GDI-004626 --smiles "CC1CC(C)(C)N(C)c2c1cc(-c1cnc(C(F)(F)F)nc1)c(O)c2CCNC(C)(C)C" --sel_direction 4 --sel_sampling_strategy DeterministicFullGraph --sel_sampling_density Dense --sim_cutoff 0.2 --filter_mols False --opt_direction Increase > generate_4626.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=0 nohup python jaeger_train.py --csv_file /mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_and_GDI_7817.csv --assay_id Novartis_and_GDI_7817_visdom --num_threads 16 --use_qualified True --vis_host 'http://localhost' > /mnt/disk1/xueying/mol-gen/JAEGER/log/Novartis_and_GDI_7817_visdom_train.log 2>&1 &

@@ -27,7 +27,9 @@ def bond_features(bond):
     return torch.Tensor([bt == Chem.rdchem.BondType.SINGLE, bt == Chem.rdchem.BondType.DOUBLE, bt == Chem.rdchem.BondType.TRIPLE, bt == Chem.rdchem.BondType.AROMATIC, bond.IsInRing()])
 
 class JTMPN(nn.Module):
-
+    '''
+    结合了树形结构和图形的消息传递。它首先在树的节点之间传递消息，然后在树的边（即图形的边）上传递消息。这种两层的消息传递机制使得JTMPN能够更好地捕捉分子结构中的层次信息
+    '''
     def __init__(self, hidden_size, depth):
         super(JTMPN, self).__init__()
         self.hidden_size = hidden_size

@@ -17,9 +17,9 @@ limitations under the License.
 import importlib
 import sys
 
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/code/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
 import numpy as np
 import pandas as pd
 
@@ -175,7 +175,7 @@ def xval(csv_file, assay_id, num_threads, use_qualified, n_splits=3, redo_partit
             model_name,
             base_lr=0.003,
             vis_host=vis_host,
-            vis_port=8097,
+            vis_port=8912,
             assay_name=assay_id,
             num_threads = num_threads,
             weight_decay = weight_decay

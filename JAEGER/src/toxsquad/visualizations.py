@@ -25,7 +25,7 @@ import numpy as np
 
 class Visualizations:
     def __init__(
-        self, env_name=None, server="http://server.company.net", port=8097,
+        self, env_name=None, server="http://localhost", port=8912,
     ):
         if env_name is None:
             env_name = str(datetime.now().strftime("%d-%m %Hh%M")) + "-torch"

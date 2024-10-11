@@ -27,6 +27,8 @@ def get_smiles(mol):
     return Chem.MolToSmiles(mol, kekuleSmiles=True)
 
 def decode_stereo(smiles2D):
+    # 生成所有可能的立体异构体的3D SMILES
+    # 在清除手性标签后，再次为每个立体异构体生成3D SMILES字符串
     mol = Chem.MolFromSmiles(smiles2D)
     dec_isomers = list(EnumerateStereoisomers(mol))
 
@@ -51,12 +53,18 @@ def sanitize(mol):
     return mol
 
 def copy_atom(atom):
+    '''
+    复制一个原子对象。创建一个新的原子对象,并将原子的符号、形式电荷和原子映射编号复制到新原子对象中。
+    '''
     new_atom = Chem.Atom(atom.GetSymbol())
     new_atom.SetFormalCharge(atom.GetFormalCharge())
     new_atom.SetAtomMapNum(atom.GetAtomMapNum())
     return new_atom
 
 def copy_edit_mol(mol):
+    '''
+    复制一个分子（mol）并返回一个新的分子对象，这个新分子对象包含了原分子中的所有原子和键。
+    '''
     new_mol = Chem.RWMol(Chem.MolFromSmiles(''))
     for atom in mol.GetAtoms():
         new_atom = copy_atom(atom)
@@ -70,7 +78,9 @@ def copy_edit_mol(mol):
 
 def get_clique_mol(mol, atoms):
     # print(atoms)
+    # 将分子mol中的指定原子集合atoms转换为SMILES字符串
     smiles = Chem.MolFragmentToSmiles(mol, atoms, kekuleSmiles=True)
+    # 从SMILES字符串创建新的分子对象
     new_mol = Chem.MolFromSmiles(smiles, sanitize=False)
     new_mol = copy_edit_mol(new_mol).GetMol()
     new_mol = sanitize(new_mol) #We assume this is not None
@@ -137,6 +147,7 @@ def tree_decomp(mol):
         bonds = [c for c in cnei if len(cliques[c]) == 2]
         rings = [c for c in cnei if len(cliques[c]) > 4]
         if len(bonds) > 2 or (len(bonds) == 2 and len(cnei) > 2): #In general, if len(cnei) >= 3, a singleton should be added, but 1 bond + 2 ring is currently not dealt with.
+            # 如果原子被>3 cliques包含，则这个原子单独成为一个cliques。原因：后续需要根据邻居cliques进行assemble，如果不增加这个节点，那么后续片段会过大，包含3～4个cliques
             cliques.append([atom])
             c2 = len(cliques) - 1
             for c1 in cnei:
@@ -205,6 +216,9 @@ def attach_mols(ctr_mol, neighbors, prev_nodes, nei_amap):
     return ctr_mol
 
 def local_attach(ctr_mol, neighbors, prev_nodes, amap_list):
+    '''
+    将邻居分子附加到中心分子上，同时保持原子映射关系
+    '''
     ctr_mol = copy_edit_mol(ctr_mol)
     nei_amap = {nei.nid:{} for nei in prev_nodes + neighbors}
 
@@ -223,6 +237,7 @@ def enum_attach(ctr_mol, nei_node, amap, singletons):
     ctr_bonds = [bond for bond in ctr_mol.GetBonds()]
 
     if nei_mol.GetNumBonds() == 0: #neighbor singleton
+        # 如果nei_mol没有键（即邻居是单例原子），则遍历ctr_atoms，找到与nei_atom相等的原子，并将其添加到att_confs中。
         nei_atom = nei_mol.GetAtomWithIdx(0)
         used_list = [atom_idx for _,atom_idx,_ in amap]
         for atom in ctr_atoms:
@@ -231,6 +246,7 @@ def enum_attach(ctr_mol, nei_node, amap, singletons):
                 att_confs.append( new_amap )
    
     elif nei_mol.GetNumBonds() == 1: #neighbor is a bond
+        # 如果nei_mol有一个键（即邻居是一个键），则遍历ctr_atoms，找到与b1或b2相等的原子，并将其添加到ref_confs中。
         bond = nei_mol.GetBondWithIdx(0)
         bond_val = int(bond.GetBondTypeAsDouble())
         b1,b2 = bond.GetBeginAtom(), bond.GetEndAtom()
@@ -247,16 +263,18 @@ def enum_attach(ctr_mol, nei_node, amap, singletons):
                 att_confs.append( new_amap )
     else: 
         #intersection is an atom
+        # 如果nei_mol有多个键，则遍历ctr_atoms和nei_mol的原子，找到相等的原子对，并将其添加到att_conset中。
         for a1 in ctr_atoms:
             for a2 in nei_mol.GetAtoms():
                 if atom_equal(a1, a2):
-                    #Optimize if atom is carbon (other atoms may change valence)
+                    #Optimize if atom is carbon (other atoms may change valence(价电子数))
                     if a1.GetAtomicNum() == 6 and a1.GetTotalNumHs() + a2.GetTotalNumHs() < 4:
                         continue
                     new_amap = amap + [(nei_idx, a1.GetIdx(), a2.GetIdx())]
                     att_confs.append( new_amap )
 
         #intersection is an bond
+        # 如果ctr_mol有多个键，遍历ctr_bonds和nei_mol的键，找到相等的键对，并将其添加到att_confs中
         if ctr_mol.GetNumBonds() > 1:
             for b1 in ctr_bonds:
                 for b2 in nei_mol.GetBonds():
@@ -271,6 +289,10 @@ def enum_attach(ctr_mol, nei_node, amap, singletons):
 
 #Try rings first: Speed-Up 
 def enum_assemble(node, neighbors, prev_nodes=[], prev_amap=[]):
+    '''
+    枚举所有可能的分子组装方案，并返回一个包含SMILES字符串、候选分子和附着构象的元组列表。这些候选方案可以用于后续的分析或优化
+    '''
+    # singletons：单原子连接点
     all_attach_confs = []
     singletons = [nei_node.nid for nei_node in neighbors + prev_nodes if nei_node.mol.GetNumAtoms() == 1]
 
@@ -286,6 +308,7 @@ def enum_assemble(node, neighbors, prev_nodes=[], prev_amap=[]):
         cand_smiles = set()
         candidates = []
         for amap in cand_amap:
+            # amap:(nei_node idx, node.mol.AtomIdx(), nei_node.mol.AtomIdx()) 过滤cand_amap，看是否可以生成合理的mol
             cand_mol = local_attach(node.mol, neighbors[:depth+1], prev_nodes, amap)
             cand_mol = sanitize(cand_mol)
             if cand_mol is None:

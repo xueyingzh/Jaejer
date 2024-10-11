@@ -84,6 +84,15 @@ Helper functions
 """
 
 def get_prop_order(root):
+    '''
+    这个函数的主要目的是通过 BFS 遍历图，生成两个顺序列表 order1 和 order2，并将它们合并为一个顺序列表 order。这个顺序列表可以用于后续的图神经网络处理中。
+
+    order1 和 order2 的区别在于它们的方向：
+
+    order1 是从父节点到子节点的顺序。
+    order2 是从子节点到父节点的顺序。
+    通过合并这两个顺序列表，可以得到一个完整的节点顺序，用于处理图结构数据。    
+    '''
     queue = deque([root])
     visited = set([root.idx])
     root.depth = 0
@@ -104,6 +113,9 @@ def get_prop_order(root):
     return order
 
 def node_aggregate(nodes, h, embedding, W):
+    '''
+    聚合节点的隐藏状态，并计算节点向量。通过将节点的嵌入向量与邻居节点的隐藏状态相加，并应用线性变换和激活函数，可以得到节点的最终表示
+    '''
     x_idx = []
     h_nei = []
     hidden_size = embedding.embedding_dim

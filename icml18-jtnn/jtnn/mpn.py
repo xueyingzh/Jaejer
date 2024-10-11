@@ -31,6 +31,9 @@ def bond_features(bond):
     return torch.Tensor(fbond + fstereo)
 
 def mol2graph(mol_batch):
+    '''
+    原子特征张量fatoms、键特征张量fbonds、原子邻接矩阵agraph、键邻接矩阵bgraph以及每个分子的原子范围列表scope
+    '''
     padding = torch.zeros(ATOM_FDIM + BOND_FDIM)
     fatoms,fbonds = [],[padding] #Ensure bond is 1-indexed
     in_bonds,all_bonds = [],[(-1,-1)] #Ensure bond is 1-indexed
