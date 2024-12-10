@@ -91,11 +91,12 @@ def preprocess_redux(assay_data,
     if drop_qualified:
         toxdata = toxdata.dropnotnull("qualifier")
 
-    toxdata = toxdata.transform_column("val", np.log10)
+    
     toxdata = toxdata.remove_columns(["qualifier"])
     toxdata = toxdata.replace([np.inf, -np.inf], np.nan).dropna(subset=["val"])
 
     if convert_to_pac50:
+        toxdata = toxdata.transform_column("val", np.log10)
         toxdata["val"] = (toxdata["val"] - 6) * -1
 
     n_dropped = len(assay_data) - len(toxdata)

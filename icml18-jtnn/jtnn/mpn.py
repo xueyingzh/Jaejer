@@ -117,7 +117,7 @@ class MPN(nn.Module):
         atom_hiddens = nn.ReLU()(self.W_o(ainput))
         
         mol_vecs = []
-        for st,le in scope:
+        for st,le in scope: #在atom层面再平均，整合成整个分子的feature
             mol_vec = atom_hiddens.narrow(0, st, le).sum(dim=0) / le
             mol_vecs.append(mol_vec)
 

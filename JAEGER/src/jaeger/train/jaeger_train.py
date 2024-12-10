@@ -81,6 +81,9 @@ def main():
         '--use_vocab', action='store_true'
     ) 
     parser.add_argument(
+        '--is_ac50', action='store_true'
+    ) 
+    parser.add_argument(
         "--assay_id", type=str, default="", help="Assay ID",
     )
     parser.add_argument(
@@ -102,7 +105,7 @@ def main():
     )
 
     args = parser.parse_args()
-    train(args.csv_file, args.assay_id, args.num_threads, args.use_qualified, args.weight_decay, filter_mols = args.drop_larger_mols, vis_host=args.vis_host, use_vocab =args.use_vocab)
+    train(args.csv_file, args.assay_id, args.num_threads, args.use_qualified, args.weight_decay, filter_mols = args.drop_larger_mols, vis_host=args.vis_host, use_vocab =args.use_vocab, convert_to_pac50=args.is_ac50)
 
 
 
@@ -110,10 +113,10 @@ def main():
 
 import os
 from jaeger.utils.jtvae_utils import load_data
-def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_mols = True, vis_host = "", use_vocab = False):
+def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_mols = True, vis_host = "", use_vocab = False, convert_to_pac50 = True):
     # --- LOAD DATA
     drop_qualified = not use_qualified
-    _, _, toxdata =load_data(csv_file, drop_qualified=drop_qualified, filter_mols = filter_mols)
+    _, _, toxdata =load_data(csv_file, drop_qualified=drop_qualified, filter_mols = filter_mols, pac50 = convert_to_pac50)
     print('toxdata.shape: ', toxdata.shape)
     # --- I/O
     assay_dir = jgr.BASE_DIR + "/" + str(assay_id)

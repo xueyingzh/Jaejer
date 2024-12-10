@@ -165,8 +165,7 @@ def compute_pca(embeddings):
     '''
     返回 PCA 对象、embeddings降维后的坐标 crds_pca、累积方差贡献率的坐标 var_coords 和每个主成分的方差贡献 var_explained
     '''
-    print('pca')
-    print(type(embeddings), embeddings.shape)
+    # print('pca', type(embeddings), embeddings.shape)
     latent_size = embeddings.shape[1]
     reducer = PCA(n_components=latent_size)
     crds_pca = reducer.fit_transform(embeddings)

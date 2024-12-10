@@ -116,8 +116,29 @@ def get_svg(in_smile, visdom=False, res=400):
 import argparse
 
 
-def decode(model, new_samples, show_st=False):
+def decode(model, new_samples, show_st=False, calcu_log = False):
     n_samples = len(new_samples)
+    
+    import torch
+    import csv
+
+    # 将张量转换为Python列表
+    # tensor_list = new_samples.tolist()
+
+    # # 定义CSV文件名
+    # csv_filename = 'new_samples_log_7817_base.csv'
+
+    # # 将张量写入CSV文件
+    # with open(csv_filename, 'w', newline='') as csvfile:
+    #     csv_writer = csv.writer(csvfile)
+    #     column_names = [f'feature_{i}' for i in range(len(tensor_list[0]))]
+    #     csv_writer.writerow(column_names)
+
+    #     for row in tensor_list:
+    #         csv_writer.writerow(row)
+
+    # print(f"Tensor has been saved to {csv_filename}")
+    
     new_smiles = []
     my_bar = None
     if show_st:
@@ -129,15 +150,27 @@ def decode(model, new_samples, show_st=False):
         except ImportError:
             pass
 
+    calcu_log = False
+    print(f'calcu_log: {calcu_log}')
     for i in range(n_samples):
         if my_bar is not None:
             my_bar.progress((i + 1) / n_samples)
 
         # print_status(i, n_samples)
         tree_vec, mol_vec = torch.chunk(new_samples[i].reshape(1,-1), 2, dim=1)
-        more_smiles = model.decode(tree_vec, mol_vec, prob_decode=False)
+
+        more_smiles = model.decode(tree_vec, mol_vec, prob_decode=False, calcu_log = calcu_log)
         new_smiles.append(more_smiles)
         # break
+    
+    # csv_filename = 'more_smiles_log_7817_base.csv'
+    # with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+    #     csv_writer = csv.writer(csvfile)
+    #     csv_writer.writerow(['smiles'])
+    #     for row in new_smiles:
+    #         csv_writer.writerow([row])
+    # print(f"Tensor has been saved to {csv_filename}")
+    
     return new_smiles
 
 
@@ -213,7 +246,8 @@ def search_new(
     surf_fig,
     filter_mols,
     direction,
-    predict_in_chem_space
+    predict_in_chem_space,
+    calcu_log
 ):
     # --- compute samples
     # toxdata trainset数据
@@ -267,7 +301,7 @@ def search_new(
            
     # --- decode samples
     torch_samples = torch.from_numpy(np.array(fit_samples)).float().to(next(model.parameters()).device) # torch.Size([72, 56])
-    neighbors_smiles = decode(model, torch_samples, True)
+    neighbors_smiles = decode(model, torch_samples, True, calcu_log)
 
     # --- rename some variables
     neighbors_vectors = fit_samples
@@ -318,9 +352,9 @@ def search_new(
         original_row['sim'] = 1
         original_row['mols'] = original_mol 
 
-        df.to_csv('/mnt/disk1/xueying/tmp/df.csv')
+        # df.to_csv('/mnt/disk1/xueying/tmp/df.csv')
         # df 生成pac50,latent(56维vector),smiles,sim,mols
-        original_row.to_csv('/mnt/disk1/xueying/tmp/original_row.csv')
+        # original_row.to_csv('/mnt/disk1/xueying/tmp/original_row.csv')
         # df = original_row.append(df)
         df = pd.concat([original_row, df], axis=0)
         # compute properties
@@ -334,7 +368,9 @@ def search_new(
             new_names.append(new_name)
         df.index = new_names
     # can be an empty DF that is returned
-    return df
+    smiles_df = pd.DataFrame(neighbors_smiles, columns=['smiles'])
+    torch_samples_df = pd.DataFrame(torch_samples.cpu().numpy(), columns=[f'Feature{i}' for i in range(torch_samples.size(1))])
+    return df, pd.concat([smiles_df, torch_samples_df], axis=1)
 
 
 
@@ -503,6 +539,7 @@ def search_app(
     qualified = available_models.loc[assay_id].qualified
     drop_qualified = not qualified
     filter_mols = available_models.loc[assay_id].filter_mols
+    calcu_log = args.calcu_log
     
     model_name = 'jtvae-h-420-l-56-d-7' #TODO change this
     
@@ -683,7 +720,7 @@ def search_app(
             st.header("Generated compounds")
         t0 = time.time()
         sel_direction = sel_direction + 1  # because of null tree vector        
-        df = search_new(
+        df, sample_res = search_new(
             toxdata,
             morgans_df,
             model,
@@ -704,7 +741,8 @@ def search_app(
             surf_fig,
             filter_mols,
             direction,
-            predict_in_chem_space
+            predict_in_chem_space,
+            calcu_log
         )
 
         t1 = time.time()
@@ -800,17 +838,20 @@ def search_app(
                 + sel_sampling_strategy
                 + "-extent-"
                 + sel_sampling_density
-                + "-cutoff-"
-                + str(sim_cutoff)
-                + "-filter-"
-                + str(filter_mols)
-                + "-opt_direction-"
-                + str(direction)
-                + "-subset_pca-"
-                + str(subset_pca)                                
+                + "-calcu_log-"
+                + str(calcu_log)
+                # + "-cutoff-"
+                # + str(sim_cutoff)
+                # + "-filter-"
+                # + str(filter_mols)
+                # + "-opt_direction-"
+                # + str(direction)
+                # + "-subset_pca-"
+                # + str(subset_pca)                                
             )
             outfile = cmpd_dir + "/" + run_name + ".csv"
             summary_df.to_csv(outfile)
+            sample_res.to_csv(outfile.replace('.csv', '_sample_vector.csv'))
             os.chmod(outfile, 0o777)
             search_params = {
                 "cmpd": cmpd,
@@ -882,6 +923,10 @@ def main():
         type=str,
         default="Increase",
         help="Options are Increase or Decrease",
+    )
+    parser.add_argument(
+        "--calcu_log", action='store_true',  # This will set the argument to True if --calcu_log is provided
+        help="Flag to enable decode calculation log",
     )
     
     

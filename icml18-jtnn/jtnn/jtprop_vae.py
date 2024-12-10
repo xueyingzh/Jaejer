@@ -87,7 +87,7 @@ class JTPropVAE(nn.Module):
     def encode(self, mol_batch):
         set_batch_nodeID(mol_batch, self.vocab)
         root_batch = [mol_tree.nodes[0] for mol_tree in mol_batch]
-        tree_mess,tree_vec = self.jtnn(root_batch)
+        tree_mess,tree_vec = self.jtnn(root_batch) # tree_vec:8*420, tree_mess字典，存储图中每个节点对的隐藏状态，这些隐藏状态在模型的前向传播过程中不断更新
 
         smiles_batch = [mol_tree.smiles for mol_tree in mol_batch]
         mol_vec = self.mpn(mol2graph(smiles_batch))
@@ -105,7 +105,7 @@ class JTPropVAE(nn.Module):
 
     def forward(self, mol_batch, beta=0):
         batch_size = len(mol_batch)
-        mol_batch, prop_batch = list(zip(*mol_batch))
+        mol_batch, prop_batch = list(zip(*mol_batch)) # mol_batch：list of MolTree, prop_batch:list of tensor values
         tree_mess, tree_vec, mol_vec = self.encode(mol_batch)
 
         tree_mean = self.T_mean(tree_vec)
@@ -315,7 +315,7 @@ class JTPropVAE(nn.Module):
         else:
             return smiles, 1.0, visited, l, tree_vec, mol_vec      
     
-    def decode(self, tree_vec, mol_vec, prob_decode):
+    def decode(self, tree_vec, mol_vec, prob_decode, calcu_log = False):
         pred_root,pred_nodes = self.decoder.decode(tree_vec, prob_decode) # pred_root：MolTreeNode, pred_nodes: list of MolTreeNodes
 
         #Mark nid & is_leaf & atommap
@@ -331,7 +331,7 @@ class JTPropVAE(nn.Module):
         global_amap = [{}] + [{} for node in pred_nodes]
         global_amap[1] = {atom.GetIdx():atom.GetIdx() for atom in cur_mol.GetAtoms()}
 
-        cur_mol = self.dfs_assemble(tree_mess, mol_vec, pred_nodes, cur_mol, global_amap, [], pred_root, None, prob_decode)
+        cur_mol = self.dfs_assemble(tree_mess, mol_vec, pred_nodes, cur_mol, global_amap, [], pred_root, None, prob_decode, calcu_log)
         if cur_mol is None:  # cur_mol: rdkit.Chem.rdchem.RWMol可编辑mol object
             return None
 
@@ -351,8 +351,8 @@ class JTPropVAE(nn.Module):
         _,max_id = scores.max(dim=0)
         return stereo_cands[max_id.item()]
 
-    def dfs_assemble(self, tree_mess, mol_vec, all_nodes, cur_mol, global_amap, fa_amap, cur_node, fa_node, prob_decode):
-        # tree_mess: tree root encoder, mol_vec: graph encoder vector
+    def dfs_assemble(self, tree_mess, mol_vec, all_nodes, cur_mol, global_amap, fa_amap, cur_node, fa_node, prob_decode, calcu_log = False):
+        # tree_mess: tree root encoder, junction tree decoder pred_root, self.jtnn([pred_root])[0], mol_vec: graph encoder vector
         # all_nodes: all tree pred_nodes, cur_mol: tree root mol, rdkit.Chem.rdchem.RWMol允许修改的mol
         # global_amap: atom map, fa_amap: 父节点atom map, cur_node:开始tree root encoder
         # fa_node: 父节点, prob_decode：decode过程中是否需要计算概率
@@ -373,10 +373,15 @@ class JTPropVAE(nn.Module):
 
         cands = [(candmol, all_nodes, cur_node) for candmol in cand_mols]
 
-        cand_vecs = self.jtmpn(cands, tree_mess)
-        cand_vecs = self.G_mean(cand_vecs)
-        mol_vec = mol_vec.squeeze()
-        scores = torch.mv(cand_vecs, mol_vec) * 20 # cand_vecs：torch.Size([71, 28])  mol_vec：torch.Size([28])
+        cand_vecs = self.jtmpn(cands, tree_mess) # cans: rdkit Mol, tree_mess: hidden state of jt root node, dict{(2,1):torch.Size([420])}, 420：hidden_size. output cand_vecs:torch.Size([1, 420])
+        cand_vecs = self.G_mean(cand_vecs) # input:torch.Size([1, 420]), output: torch.Size([1, 28])
+        mol_vec = mol_vec.squeeze() # mol_vec input: , output: torch.Size([28])
+        
+        if calcu_log:
+            scores = torch.log(torch.mv(cand_vecs, mol_vec)) # cand_vecs：torch.Size([71, 28])  mol_vec：torch.Size([28]), output:tensor([440.3280], device='cuda:0', grad_fn=<MulBackward0>)
+        else: 
+            scores = torch.mv(cand_vecs, mol_vec) * 20 # cand_vecs：torch.Size([71, 28])  mol_vec：torch.Size([28]), output:tensor([440.3280], device='cuda:0', grad_fn=<MulBackward0>)
+        # 
 
         if prob_decode:
             probs = nn.Softmax()(scores.view(1,-1)).squeeze() + 1e-5 #prevent prob = 0
