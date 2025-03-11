@@ -16,9 +16,9 @@ limitations under the License.
 
 import importlib
 import sys
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
 import torch
 
 import numpy as np
@@ -65,7 +65,7 @@ def validate(csv_file, assay_id, use_qualified, filter_mols = True):
 
     drop_qualified = not use_qualified
     morgans_df, targets, toxdata =load_data(csv_file, pac50=pac50, drop_qualified=drop_qualified, filter_mols = filter_mols)
-
+    print(f'toxdata[:10]: {toxdata[:10]}')
     # --- I/O
     # these dirs are created at training time
     assay_dir = jgr.BASE_DIR + "/" + str(assay_id)

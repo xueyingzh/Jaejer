@@ -16,9 +16,9 @@ limitations under the License.
 
 import importlib
 import sys
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
 
 import numpy as np
 import pandas as pd
@@ -113,6 +113,8 @@ def main():
 
 import os
 from jaeger.utils.jtvae_utils import load_data
+from datetime import datetime
+
 def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_mols = True, vis_host = "", use_vocab = False, convert_to_pac50 = True):
     # --- LOAD DATA
     drop_qualified = not use_qualified
@@ -162,8 +164,11 @@ def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_m
     if vis_host == "":
         vis = None
     else:   
+        # 获取当前日期和时间,格式化为 mmddhhmmss
+        formatted_time = datetime.now().strftime("%m%d%H%M%S")
+
         vis = Visualizations(
-            env_name="jtvae-train-"+str(assay_id), server=vis_host, port=8912
+            env_name="jtvae-train-"+str(assay_id)+str(formatted_time), server=vis_host, port=8907
         )
 
     TRAIN_INFERENCE_MODEL = True

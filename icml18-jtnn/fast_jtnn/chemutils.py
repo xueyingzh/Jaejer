@@ -73,14 +73,14 @@ def get_clique_mol(mol, atoms):
     return new_mol
 
 def tree_decomp(mol):
-    print('fast-jtnn')
+    # print('fast-jtnn')
     n_atoms = mol.GetNumAtoms()
     if n_atoms == 1: #special case
         return [[0]], []
 
     cliques = []
     for bond in mol.GetBonds():
-        print('bond')
+        # print('bond')
         # beginAtom = bond.GetBeginAtom()
         # # print(beginAtom.GetSymbol(), beginAtom.GetIdx(), beginAtom.IsInRing(), beginAtom.GetAtomMapNum())
         # a1 = beginAtom.GetIdx()

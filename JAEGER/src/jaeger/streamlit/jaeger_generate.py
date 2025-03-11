@@ -20,9 +20,9 @@ import time
 from itertools import compress
 
 import sys
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
 
 # --- JAEGER imports
 import jaeger as jgr
@@ -150,7 +150,6 @@ def decode(model, new_samples, show_st=False, calcu_log = False):
         except ImportError:
             pass
 
-    calcu_log = False
     print(f'calcu_log: {calcu_log}')
     for i in range(n_samples):
         if my_bar is not None:
@@ -315,7 +314,8 @@ def search_new(
         df["smiles"] = neighbors_smiles
         
         # remove redundant smiles
-        df.drop_duplicates(subset="smiles", inplace=True)
+        # debug xueying
+        # df.drop_duplicates(subset="smiles", inplace=True)
         # compute similarity to reference
         s, mols, fps = check_for_similarity(smiles, df["smiles"].values)
         df["sim"] = s
@@ -540,6 +540,8 @@ def search_app(
     drop_qualified = not qualified
     filter_mols = available_models.loc[assay_id].filter_mols
     calcu_log = args.calcu_log
+   
+    # raise ValueError('stop here')
     
     model_name = 'jtvae-h-420-l-56-d-7' #TODO change this
     

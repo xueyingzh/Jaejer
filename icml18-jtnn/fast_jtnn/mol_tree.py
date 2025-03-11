@@ -127,9 +127,9 @@ if __name__ == "__main__":
     import pandas as pd
     from tqdm import tqdm
     
-    train_file = '/mnt/disk1/xueying/tmp/antimalaria/trainset_v2.csv'
+    train_file = '/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models/training_data/antimalaria_ghddi_100nM_Lable_v1.csv'
     toxdata = pd.read_csv(train_file)
-    smiles = toxdata.Cleaned_SMILES
+    smiles = toxdata.SMILES
     props = toxdata.Label
     error_smiles = []
     
@@ -148,4 +148,6 @@ if __name__ == "__main__":
     if len(error_smiles) > 0:
         data=DataFrame(error_smiles, columns = ['smiles'])
         data.to_csv(train_file.replace('.csv', '_error.csv'), index = False)
+        toxdata[~toxdata.SMILES.isin(error_smiles)].to_csv(train_file.replace('.csv', '_cleaned.csv'), index = False)
+
 

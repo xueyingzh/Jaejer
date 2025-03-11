@@ -91,7 +91,7 @@ def preprocess_redux(assay_data,
     if drop_qualified:
         toxdata = toxdata.dropnotnull("qualifier")
 
-    
+    print('convert_to_pac50', convert_to_pac50)
     toxdata = toxdata.remove_columns(["qualifier"])
     toxdata = toxdata.replace([np.inf, -np.inf], np.nan).dropna(subset=["val"])
 

@@ -17,9 +17,9 @@ limitations under the License.
 import importlib
 import sys
 
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/mol-gen/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
 import numpy as np
 import pandas as pd
 
@@ -117,6 +117,7 @@ def xval(csv_file, assay_id, num_threads, use_qualified, n_splits=3, redo_partit
     # --- LOAD DATA
     drop_qualified = not use_qualified
     morgans_df, targets, toxdata =load_data(csv_file, drop_qualified=drop_qualified) # so always using pAC50s now as transform
+    print(f'toxdata[:10]: {toxdata[:10]}')
     # --- I/O
     assay_dir = jgr.BASE_DIR + "/" + str(assay_id)
 

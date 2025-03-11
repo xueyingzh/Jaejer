@@ -27,6 +27,10 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 # --- JT-VAE
 # from jtnn import *  # not cool, but this is how they do it ...
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
+
 from jtnn.datautils import ToxPropDataset
 # --- disable rdkit warnings
 from datetime import datetime
@@ -109,6 +113,7 @@ def derive_inference_model(
 
     smiles = toxdata.smiles
     props = toxdata.val
+    print(f'props[:10]: {props[:10]}')
     dataset = ToxPropDataset(smiles, props)
     batch_size = 8
     dataloader = data.DataLoader(
@@ -118,11 +123,11 @@ def derive_inference_model(
         shuffle=False,
         num_workers=num_threads,
         collate_fn=lambda x: x,
-        drop_last=True,
+        # drop_last=True,
     )
     from jtnn.jtprop_vae import JTPropVAE
 
-    model = JTPropVAE(vocab, **model_params).to(device)
+    model = JTPropVAE(vocab, **model_params).to(device)            
     optimizer = optim.Adam(model.parameters(), lr=base_lr, weight_decay=weight_decay)
     scheduler = lr_scheduler.ExponentialLR(optimizer, 0.9)
     scheduler.step()
@@ -139,7 +144,7 @@ def derive_inference_model(
         total_step_count,
         model_name,
         MAX_EPOCH=epoch,
-        PRINT_ITER=1,
+        PRINT_ITER=20,
     )
     # train (set a smaller initial LR, beta to  0.005)
     optimizer = optim.Adam(model.parameters(), lr=0.0003,weight_decay=weight_decay)
@@ -158,7 +163,7 @@ def derive_inference_model(
         beta=0.005,
         model_name=model_name,
         MAX_EPOCH=epoch,
-        PRINT_ITER=5,
+        PRINT_ITER=20,
     )
 
     # --- fine tune AE
@@ -166,10 +171,6 @@ def derive_inference_model(
     # scheduler = lr_scheduler.ExponentialLR(optimizer, 0.9)
     # scheduler.step()
     # total_step_count = train_jtvae(model, optimizer, scheduler, dataloader, device, infer_dir, vis, total_step_count, 0.005, model_name, MAX_EPOCH=36, PRINT_ITER=5)
-
-
-
-
 
 
 def cross_validate_jtvae(
@@ -241,7 +242,7 @@ def cross_validate_jtvae(
             0,
             model_name,
             MAX_EPOCH=36,
-            PRINT_ITER=5,
+            PRINT_ITER=20,
         )
         # train (set a smaller initial LR, beta to  0.005)
         optimizer = optim.Adam(model.parameters(), lr=0.0003,weight_decay=weight_decay)
@@ -260,7 +261,7 @@ def cross_validate_jtvae(
             beta=0.005,
             model_name=model_name,
             MAX_EPOCH=36,
-            PRINT_ITER=5,
+            PRINT_ITER=20,
         )
         # evaluate (only property prediction accuracy for now)
         scores.append(
@@ -290,7 +291,7 @@ def pre_train_jtvae(
     total_step_count,
     model_name,
     MAX_EPOCH=36,
-    PRINT_ITER=5,
+    PRINT_ITER=20,
 ):
     my_log = open(model_dir + "/loss-pre.txt", "w")
     for epoch in tqdm(range(MAX_EPOCH)):
@@ -365,7 +366,7 @@ def train_jtvae(
     beta,
     model_name,
     MAX_EPOCH=36,
-    PRINT_ITER=5,
+    PRINT_ITER=20,
 ):
     my_log = open(model_dir + "/loss-ref.txt", "w")
     for epoch in tqdm(range(MAX_EPOCH)):
@@ -945,9 +946,71 @@ def load_data(csv_file, filter_mols=True,
     return morgans_df, targets, toxdata
 
 
+def reconstruct(csv_file, assay_id, filter_mols=True,
+              drop_qualified=False,
+              pac50=True,
+              binary_fp = False):
+    import jaeger as jgr
+    _, _, toxdata = modelling_data_from_csv(csv_file,
+                                            filter_mols=filter_mols,
+                                            drop_qualified =drop_qualified,
+                                            convert_to_pac50 = pac50,
+                                            binary_fp = binary_fp)
+    dataset = ToxPropDataset(toxdata.smiles, toxdata.val)
+    batch_size = 8
+    dataloader = data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        # shuffle=True,
+        shuffle=False,
+        num_workers=24,
+        collate_fn=lambda x: x,
+        drop_last=True,
+    )
+    
+    assay_dir = jgr.BASE_DIR + "/" + str(assay_id)
+    vocab = get_vocab(assay_dir, assay_id, toxdata)
+    # --- hardware settings
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:0" if use_cuda else "cpu")
+
+    # --- define model
+    model_params = dict(hidden_size=420, latent_size=56, depth=7)
+    model_name = (
+        "jtvae-h-"
+        + str(model_params["hidden_size"])
+        + "-l-"
+        + str(model_params["latent_size"])
+        + "-d-"
+        + str(model_params["depth"])
+    )
+
+    model_dir = assay_dir + "/jtvae/" + model_name
+    if not os.path.exists(model_dir):
+        os.mkdir(model_dir)
+        
+    from jtnn.jtprop_vae import JTPropVAE
+    model = JTPropVAE(vocab, **model_params).to(device)
+    model = model.eval()
+    # for it, batch in enumerate(dataloader):
+    #         for mol_tree, _ in batch:
+    #             for node in mol_tree.nodes:
+    #                 if node.label not in node.cands:
+    #                     node.cands.append(node.label)
+    #                     node.cand_mols.append(node.label_mol)
+    #         tree_vec, mol_vec = model.encode_latent_mean(batch)
+    for i in range(len(toxdata)):
+        sml = toxdata.smiles.iloc[i]
+        tree_feature_vec = model.encode_latent_mean([sml])
+        split_tensors = torch.split(tree_feature_vec, 28, dim=1)
+        reconstructed_smiles = model.decode(split_tensors[0], split_tensors[1], prob_decode=False)
+        print(f"Original: {sml}, Reconstructed: {reconstructed_smiles}")
+    
+
 if __name__ == "__main__":
-    df = pd.read_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv')
-    train = compute_properties(df)
-    train.to_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/assays/Novartis_GNF/output/train_with_prop.csv', index=False)
+    # df = pd.read_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv')
+    # train = compute_properties(df)
+    reconstruct('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv', 'all_data_trans_7341')
+    # train.to_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/assays/Novartis_GNF/output/train_with_prop.csv', index=False)
 
 
