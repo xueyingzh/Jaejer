@@ -434,9 +434,10 @@ class JTPropVAE(nn.Module):
         cur_vec = create_var(mean.data, False)            
         return cur_vec;
 
-    def predict(self, smiles):            
-        prop_val = self.propNN(self.embed(smiles)).squeeze()
-        return prop_val;
+    def predict(self, smiles):   
+         cur_vec = self.embed(smiles)
+         prop_val = self.propNN(cur_vec).squeeze()
+         return prop_val, cur_vec
 
     def predict_from_embedding(self, embedding):
         cur_vec = create_var(embedding, False)

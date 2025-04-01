@@ -139,7 +139,7 @@ def derive_inference_model(
         total_step_count,
         model_name,
         MAX_EPOCH=epoch,
-        PRINT_ITER=1,
+        PRINT_ITER=20,
     )
     # train (set a smaller initial LR, beta to  0.005)
     optimizer = optim.Adam(model.parameters(), lr=0.0003,weight_decay=weight_decay)
@@ -158,7 +158,7 @@ def derive_inference_model(
         beta=0.005,
         model_name=model_name,
         MAX_EPOCH=epoch,
-        PRINT_ITER=5,
+        PRINT_ITER=20,
     )
 
     # --- fine tune AE
@@ -191,7 +191,7 @@ def cross_validate_jtvae(
     :todo ensure same training parameters are used for inference and cross-val models
     """
     MAX_EPOCH=36
-    PRINT_ITER = 5
+    PRINT_ITER = 20
     run = 0
     scores = []
     for partition in partitions:
@@ -241,7 +241,7 @@ def cross_validate_jtvae(
             0,
             model_name,
             MAX_EPOCH=36,
-            PRINT_ITER=5,
+            PRINT_ITER=20,
         )
         # train (set a smaller initial LR, beta to  0.005)
         optimizer = optim.Adam(model.parameters(), lr=0.0003,weight_decay=weight_decay)
@@ -260,7 +260,7 @@ def cross_validate_jtvae(
             beta=0.005,
             model_name=model_name,
             MAX_EPOCH=36,
-            PRINT_ITER=5,
+            PRINT_ITER=20,
         )
         # evaluate (only property prediction accuracy for now)
         scores.append(
@@ -290,7 +290,7 @@ def pre_train_jtvae(
     total_step_count,
     model_name,
     MAX_EPOCH=36,
-    PRINT_ITER=5,
+    PRINT_ITER=20,
 ):
     my_log = open(model_dir + "/loss-pre.txt", "w")
     for epoch in tqdm(range(MAX_EPOCH)):
@@ -365,7 +365,7 @@ def train_jtvae(
     beta,
     model_name,
     MAX_EPOCH=36,
-    PRINT_ITER=5,
+    PRINT_ITER=20,
 ):
     my_log = open(model_dir + "/loss-ref.txt", "w")
     for epoch in tqdm(range(MAX_EPOCH)):
@@ -462,7 +462,7 @@ def evaluate_predictions_model(model, smiles, props, vis):
         - coords are x, y coordinates for the "performance plot"
           (where x=actual and y=predicted).
     """
-    predictions = dict()
+    predictions, feature = dict(), dict()
     n_molecules = len(smiles)
     coords = np.zeros((n_molecules, 2))
     # k = 0;
@@ -474,7 +474,10 @@ def evaluate_predictions_model(model, smiles, props, vis):
         # model.predict(sml) returns a torch tensor
         # on which we need to call .item()
         # to get the actual floating point value out.
-        predictions[idx] = model.predict(sml).item()
+        # predictions[idx] = model.predict(sml).item()
+        pre, vec = model.predict(sml)
+        predictions[idx] = pre.item()
+        feature[sml] = vec
         coords[k, 0] = prop.item()
         coords[k, 1] = predictions[idx]
         # k = k + 1;
@@ -487,6 +490,13 @@ def evaluate_predictions_model(model, smiles, props, vis):
     scores.append(mse)
     scores.append(corr)
 
+    # 提取并处理新张量
+    df_feature = []
+    for k in feature.keys():
+        df_feature.append(feature[k].cpu().detach().numpy().squeeze())
+    df_feature = pd.DataFrame(df_feature, index=feature.keys(), columns=[f"Feature_{i}" for i in range(56)])
+ 
+    df_feature.to_csv("/mnt/disk1/xueying/jtvae/data/trainset/all_data_old_7341_gdi_feature.csv")
     # TODO do reconstruction test
 
     if vis is not None:
