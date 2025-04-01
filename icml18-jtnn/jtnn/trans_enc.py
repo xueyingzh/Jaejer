@@ -1,5 +1,5 @@
 import os
-# os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import torch
 import torch.nn as nn
 from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline

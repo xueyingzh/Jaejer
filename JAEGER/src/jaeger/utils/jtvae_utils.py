@@ -463,7 +463,7 @@ def evaluate_predictions_model(model, smiles, props, vis):
         - coords are x, y coordinates for the "performance plot"
           (where x=actual and y=predicted).
     """
-    predictions = dict()
+    predictions, feature = dict(), dict()
     n_molecules = len(smiles)
     coords = np.zeros((n_molecules, 2))
     # k = 0;
@@ -475,7 +475,9 @@ def evaluate_predictions_model(model, smiles, props, vis):
         # model.predict(sml) returns a torch tensor
         # on which we need to call .item()
         # to get the actual floating point value out.
-        predictions[idx] = model.predict(sml).item()
+        pre, vec = model.predict(sml)
+        predictions[idx] = pre.item()
+        feature[sml] = vec
         coords[k, 0] = prop.item()
         coords[k, 1] = predictions[idx]
         # k = k + 1;
@@ -487,7 +489,13 @@ def evaluate_predictions_model(model, smiles, props, vis):
     scores = []
     scores.append(mse)
     scores.append(corr)
+    # 提取并处理新张量
+    df_feature = []
+    for k in feature.keys():
+        df_feature.append(feature[k].cpu().detach().numpy().squeeze())
+    df_feature = pd.DataFrame(df_feature, index=feature.keys(), columns=[f"Feature_{i}" for i in range(56)])
 
+    df_feature.to_csv("/mnt/disk1/xueying/jtvae/data/trainset/all_data_trans_7341_nov_feature.csv")
     # TODO do reconstruction test
 
     if vis is not None:
@@ -1007,10 +1015,58 @@ def reconstruct(csv_file, assay_id, filter_mols=True,
         print(f"Original: {sml}, Reconstructed: {reconstructed_smiles}")
     
 
+def process_smiles(smiles):
+    """处理单个 SMILES 字符串，返回节点集合和错误信息"""
+    try:
+        mol = MolTree(smiles)
+        nodes = {c.smiles for c in mol.nodes}
+        return nodes, None
+    except Exception as e:
+        return set(), (smiles, str(e))
+    
+def get_vocab_v2(assay_dir, assay_id, toxdata, smiles_col, n_jobs=None):
+    from tqdm import tqdm
+    from multiprocessing import Pool
+    import os, time
+    from functools import partial
+    filename = os.path.join(assay_dir, "jtvae", f"{assay_id}-vocab.pkl")
+
+    print("Deriving vocabulary")
+    start = time.time()
+    smiles_list = list(toxdata[smiles_col])
+    
+    # 多进程并行处理
+    with Pool(processes=n_jobs) as pool:
+        results = list(tqdm(
+            pool.imap(process_smiles, smiles_list),
+            total=len(smiles_list),
+            desc="Processing SMILES"
+        ))
+    
+    # 合并结果和错误信息
+    vocab_set = set()
+    errors = []
+    for nodes, error in results:
+        vocab_set.update(nodes)
+        if error:
+            errors.append(error)
+    
+    # 打印错误信息（与原逻辑一致）
+    for smiles, e in errors:
+        print(f"exception: {e}, error smiles: {smiles}")
+    
+    vocab = Vocab(list(vocab_set))
+    save_object(vocab, filename)
+    print(f"Time cost: {time.time() - start} seconds") 
+    return vocab
+
+
 if __name__ == "__main__":
-    # df = pd.read_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv')
+    df = pd.read_csv('/mnt/disk1/xueying/jtvae/topscience/TopScience_Dataset1_forGeneralUse_400000.csv')
     # train = compute_properties(df)
-    reconstruct('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv', 'all_data_trans_7341')
+    # reconstruct('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv', 'all_data_trans_7341')
     # train.to_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/assays/Novartis_GNF/output/train_with_prop.csv', index=False)
+    # _, _, tox_data = load_data('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models/training_data/Novartis_GNF_cleaned_with_prop.csv', filter_mols=True, drop_qualified=False, pac50=True)
+    get_vocab_v2('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models/assays/topscience', 'topscience', df, 'Cleaned_SMILES', 100)
 
 
