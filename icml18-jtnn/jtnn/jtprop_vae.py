@@ -356,6 +356,7 @@ class JTPropVAE(nn.Module):
         # all_nodes: all tree pred_nodes, cur_mol: tree root mol, rdkit.Chem.rdchem.RWMol允许修改的mol
         # global_amap: atom map, fa_amap: 父节点atom map, cur_node:开始tree root encoder
         # fa_node: 父节点, prob_decode：decode过程中是否需要计算概率
+        print('dfs_assemble calcu_log', calcu_log)
         fa_nid = fa_node.nid if fa_node is not None else -1
         prev_nodes = [fa_node] if fa_node is not None else []
 
@@ -409,7 +410,7 @@ class JTPropVAE(nn.Module):
             result = True
             for nei_node in children:
                 if nei_node.is_leaf: continue
-                cur_mol = self.dfs_assemble(tree_mess, mol_vec, all_nodes, cur_mol, new_global_amap, pred_amap, nei_node, cur_node, prob_decode)
+                cur_mol = self.dfs_assemble(tree_mess, mol_vec, all_nodes, cur_mol, new_global_amap, pred_amap, nei_node, cur_node, prob_decode, calcu_log)
                 if cur_mol is None: 
                     result = False
                     break
