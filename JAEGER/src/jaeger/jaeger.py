@@ -16,7 +16,7 @@ limitations under the License.
 
 NAME="JAEGER"
 TITLE="**JAEGER**: JT-VAE Generative Modeling"
-JAEGER_HOME="/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models"
+JAEGER_HOME="/mnt/disk/xueying/jtvae-trans/Jaejer/JAEGER/models"
 BASE_DIR=JAEGER_HOME+"/assays" 
 TRAINING_DIR=JAEGER_HOME+"/training_data"
 AVAIL_MODELS=JAEGER_HOME+"/jaeger_avail_models.csv"
@@ -38,7 +38,8 @@ import torch
 
 # --- JTVAE imports
 from jtnn import *
-from jtnn.jtprop_vae import JTPropVAE
+# from jtnn.jtprop_vae import JTPropVAE
+from jtnn.jtprop_vae_cross_att import JTPropVAE
 
 # --- TOXSQUAD imports
 from toxsquad.data import modelling_data_from_csv

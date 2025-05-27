@@ -17,9 +17,9 @@ limitations under the License.
 import importlib
 import sys
 
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/JAEGER/src')
 import numpy as np
 import pandas as pd
 

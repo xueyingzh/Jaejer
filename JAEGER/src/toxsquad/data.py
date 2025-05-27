@@ -16,8 +16,8 @@ limitations under the License.
 
 import numpy as np
 import pandas as pd
-import janitor
-import janitor.chemistry
+# import janitor
+# import janitor.chemistry
 # nn stuff
 import torch
 # chem stuff
@@ -92,15 +92,15 @@ def preprocess_redux(assay_data,
         toxdata = toxdata.dropnotnull("qualifier")
 
     print('convert_to_pac50', convert_to_pac50)
-    toxdata = toxdata.remove_columns(["qualifier"])
+    toxdata = toxdata.drop(columns = ["qualifier"])
     toxdata = toxdata.replace([np.inf, -np.inf], np.nan).dropna(subset=["val"])
 
     if convert_to_pac50:
-        toxdata = toxdata.transform_column("val", np.log10)
+        toxdata['val'] = toxdata['val'].apply(np.log10)
         toxdata["val"] = (toxdata["val"] - 6) * -1
 
     n_dropped = len(assay_data) - len(toxdata)
-    print(n_dropped)
+    print(f'n_dropped: {n_dropped}')
     morgans = {}
     mols = {}
     for idx in toxdata.index:

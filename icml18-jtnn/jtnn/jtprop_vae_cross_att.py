@@ -5,6 +5,8 @@ from nnutils import create_var
 from jtnn_enc import JTNNEncoder
 from jtnn_dec import JTNNDecoder
 from trans_enc import TransformerEncoder
+# from cross_attention import CrossAttention
+from batch_cross import BatchCrossAttention
 from mpn import MPN, mol2graph
 from jtmpn import JTMPN
 # WG
@@ -18,6 +20,10 @@ import rdkit.Chem as Chem
 from rdkit import DataStructs
 from rdkit.Chem import AllChem
 import copy, math
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+import wandb
 
 def set_batch_nodeID(mol_batch, vocab):
     tot = 0
@@ -51,6 +57,9 @@ class JTPropVAE(nn.Module):
         self.T_var = nn.Linear(hidden_size,  int(latent_size / 2))
         self.G_mean = nn.Linear(hidden_size, int(latent_size / 2))
         self.G_var = nn.Linear(hidden_size,  int(latent_size / 2))
+        
+        self.T_fc = nn.Linear(hidden_size * 2, hidden_size)
+        self.G_fc = nn.Linear(hidden_size * 2, hidden_size)
         # original
         #self.propNN = nn.Sequential(
         #        nn.Linear(self.latent_size, self.hidden_size),
@@ -69,7 +78,8 @@ class JTPropVAE(nn.Module):
             ResidualBlock(self.hidden_size),
             ResidualBlock(self.hidden_size),
             nn.Linear(self.hidden_size, out_size)
-       )        
+       )    
+        self.cross_attn = BatchCrossAttention(self.hidden_size)    
         #self.prop_loss = nn.MSELoss() # WG
         self.prop_loss = prop_loss()
         self.assm_loss = nn.CrossEntropyLoss(size_average=False)
@@ -91,12 +101,12 @@ class JTPropVAE(nn.Module):
     def encode(self, mol_batch):
         set_batch_nodeID(mol_batch, self.vocab) # 给molTree中的每一个node增加wid(查询在vocab中的index)
         root_batch = [mol_tree.nodes[0] for mol_tree in mol_batch]
-        tree_mess,tree_vec = self.jtnn(root_batch) # tree_vec:8*420, tree_mess字典，存储图中每个节点对的隐藏状态，这些隐藏状态在模型的前向传播过程中不断更新
+        tree_mess,tree_vec,tnode_vecs = self.jtnn(root_batch) # tree_vec:8*420, tree_mess字典，存储图中每个节点对的隐藏状态，这些隐藏状态在模型的前向传播过程中不断更新
 
         smiles_batch = [mol_tree.smiles for mol_tree in mol_batch]
         # tran_vec = self.mpn(mol2graph(smiles_batch))
-        tran_vec = self.transmpn(smiles_batch)
-        return tree_mess, tree_vec, tran_vec
+        tran_vec, logits = self.transmpn(smiles_batch)
+        return tree_mess, tree_vec, tnode_vecs, logits, tran_vec
 
     def encode_latent_mean(self, smiles_list):
         mol_batch = [MolTree(s) for s in smiles_list]
@@ -108,11 +118,27 @@ class JTPropVAE(nn.Module):
         mol_mean = self.G_mean(tran_vec)
         return torch.cat([tree_mean,mol_mean], dim=1)
 
-    def forward(self, mol_batch, beta=0):
+    def forward(self, mol_batch, beta, wandb_run=None, total_step_count=0):
         batch_size = len(mol_batch) # list (MolTree, tensor(prop_value)), len = batch_size
         mol_batch, prop_batch = list(zip(*mol_batch)) # mol_batch：list of MolTree, prop_batch:list of tensor values
-        tree_mess, tree_vec, tran_vec = self.encode(mol_batch)
+        tree_mess, tree_vec, tnode_vecs, trans_logits, tran_vec = self.encode(mol_batch) # tree_vec：torch.Size([8, 420])，tnode_vecs：torch.Size([8, 20, 420])，trans_logits：torch.Size([8, 65, 420])，tran_vec：torch.Size([8, 420])
         # print(tree_vec.shape, tran_vec.shape)
+        
+        # 改成tree_vec：batch_size, node_num, hidden_size, tran_vec: batch_size, len(smiles), hidden_size
+        # q:tnode_vecs, kv:trans_logits
+        tree_value, tree_attn_weights = self.cross_attn(tnode_vecs, trans_logits) # tnode_vecs: torch.Size([8, 20, 420]),trans_logits： torch.Size([8, 65, 420])
+        # q:trans_logits, kv:tnode_vecs
+        tran_value, tran_attn_weights = self.cross_attn(trans_logits, tnode_vecs) # tnode_vecs: torch.Size([8, 66, 840]), trans_logits: torch.Size([8, 420])
+        
+        if total_step_count % 1000 == 0:
+            pass
+            # self.log_attention_visualizations(tree_attn_weights, tran_attn_weights, tree_labels, smiles_tokens)
+        
+        # tree_vec, tran_vec shape调整 tran_value:torch.Size([8, 65, 420]), tree_value: torch.Size([8, 20, 420])
+        # tree_vec = self.T_fc(tree_value.mean(dim=1)) # tree_vec: torch.Size([8, 420])
+        # tran_vec = self.G_fc(tran_value.mean(dim=1)) # tran_vec: torch.Size([8, 420])
+        tree_vec = tree_value.mean(dim=1)
+        tran_vec = tran_value.mean(dim=1)
 
         tree_mean = self.T_mean(tree_vec)
         tree_log_var = -torch.abs(self.T_var(tree_vec)) #Following Mueller et al.
@@ -129,6 +155,7 @@ class JTPropVAE(nn.Module):
         epsilon = create_var(torch.randn(batch_size, int(self.latent_size / 2)), False)
         tran_vec = mol_mean + torch.exp(mol_log_var / 2) * epsilon
         
+        
         word_loss, topo_loss, word_acc, topo_acc = self.decoder(mol_batch, tree_vec)
         torch.cuda.empty_cache()
         assm_loss, assm_acc = self.assm(mol_batch, tran_vec, tree_mess)
@@ -140,6 +167,8 @@ class JTPropVAE(nn.Module):
         prop_loss = self.prop_loss(self.propNN(all_vec).squeeze(), prop_label)
         
         loss = word_loss + topo_loss + assm_loss + 2 * stereo_loss + prop_loss + beta * kl_loss
+        if wandb_run is not None:
+            wandb_run.log({"word_loss": word_loss, "topo_loss": topo_loss, "assm_loss": assm_loss, "stereo_loss": stereo_loss, "prop_loss": prop_loss, "kl div": kl_loss, "total loss": loss}, step=total_step_count)
         return loss, kl_loss.item(), word_acc, topo_acc, assm_acc, stereo_acc, prop_loss.item()
 
     def assm(self, mol_batch, tran_vec, tree_mess):
@@ -209,7 +238,7 @@ class JTPropVAE(nn.Module):
 
         batch_idx = create_var(torch.LongTensor(batch_idx))
         # stereo_cands = self.mpn(mol2graph(stereo_cands))
-        stereo_cands = self.transmpn(stereo_cands)
+        stereo_cands, _ = self.transmpn(stereo_cands)
         stereo_cands = self.G_mean(stereo_cands)
         stereo_labels = tran_vec.index_select(0, batch_idx)
         scores = torch.nn.CosineSimilarity()(stereo_cands, stereo_labels)
@@ -358,7 +387,7 @@ class JTPropVAE(nn.Module):
         stereo_cands = decode_stereo(smiles2D) # list 手性化合物
         if len(stereo_cands) == 1: 
             return stereo_cands[0]
-        stereo_vecs = self.transmpn(stereo_cands)
+        stereo_vecs, _ = self.transmpn(stereo_cands)
         # stereo_vecs = self.mpn(mol2graph(stereo_cands))
         stereo_vecs = self.G_mean(stereo_vecs)
         scores = nn.CosineSimilarity()(stereo_vecs, tran_vec)
@@ -441,8 +470,16 @@ class JTPropVAE(nn.Module):
     def encode_single_smile(self, smiles):
         mol_tree = MolTree(smiles)
         mol_tree.recover()
-        _,tree_vec,tran_vec = self.encode([mol_tree])
+        _, tree_vec, tnode_vecs, trans_logits, tran_vec = self.encode([mol_tree])
 
+        # 应用交叉注意力（与forward一致）
+        tree_value, _ = self.cross_attn(tnode_vecs, trans_logits) 
+        tran_value, _ = self.cross_attn(trans_logits, tnode_vecs)
+        
+        # 生成最终向量（与forward一致）
+        tree_vec = tree_value.mean(dim=1)
+        tran_vec = tran_value.mean(dim=1)
+        
         tree_mean = self.T_mean(tree_vec)
         mol_mean = self.G_mean(tran_vec)
         return tree_mean, mol_mean
@@ -511,6 +548,42 @@ class JTPropVAE(nn.Module):
         predictions = predictions.cpu().detach().numpy();
 
         return vectors, predictions;
+    
+
+    def plot_attention(self, attn_weights, row_labels, col_labels, title):
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(attn_weights, annot=False, cmap='viridis', 
+                    xticklabels=col_labels, yticklabels=row_labels)
+        plt.title(title)
+        plt.xlabel("SMILES Tokens")
+        plt.ylabel("Tree Nodes")
+        plt.tight_layout()
+        return plt
+
+    # 在训练或推断后调用
+    def log_attention_visualizations(self, tree_attn, tran_attn, tree_labels, smiles_tokens, wandb_run = None):
+        # 获取注意力权重
+        # tree_attn = model.tree_attn_weights[batch_idx].mean(dim=0)  # 平均多头
+        # tran_attn = model.tran_attn_weights[batch_idx].mean(dim=0)
+        
+        # # 获取标签
+        # tree_labels = model.tree_node_smiles[batch_idx]
+        # smiles_tokens = model.smiles_tokens_list[batch_idx]
+        
+        # 生成热力图
+        tree_attn_fig = self.plot_attention(tree_attn.cpu().numpy(), 
+                                    tree_labels, smiles_tokens, 
+                                    "Tree to SMILES Attention")
+        tran_attn_fig = self.plot_attention(tran_attn.cpu().numpy(),
+                                    smiles_tokens, tree_labels,
+                                    "SMILES to Tree Attention")
+        
+        # 记录到WandB
+        wandb_run.log({
+            "Tree_to_SMILES_Attention": wandb.Image(tree_attn_fig),
+            "SMILES_to_Tree_Attention": wandb.Image(tran_attn_fig)
+        })
+        plt.close()
 
   
 

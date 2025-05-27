@@ -16,9 +16,9 @@ limitations under the License.
 
 import importlib
 import sys
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
+sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/icml18-jtnn')
+sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/JAEGER/src')
 import torch
 
 import numpy as np
@@ -44,7 +44,8 @@ import argparse
 # --- JT-VAE
 from jtnn import *
 from jtnn.chemutils import *
-from jtnn.jtprop_vae import JTPropVAE
+# from jtnn.jtprop_vae import JTPropVAE
+from jtnn.jtprop_vae_cross_att import JTPropVAE
 from jaeger.utils.jtvae_utils import *
 
 

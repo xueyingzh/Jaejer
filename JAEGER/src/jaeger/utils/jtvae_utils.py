@@ -17,19 +17,20 @@ limitations under the License.
 import os
 import random
 import sys
+import wandb
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+# import plotly.graph_objects as go
 import rdkit.Chem as Chem
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 # --- JT-VAE
 # from jtnn import *  # not cool, but this is how they do it ...
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/JAEGER/src')
 
 from jtnn.datautils import ToxPropDataset
 # --- disable rdkit warnings
@@ -109,8 +110,21 @@ def derive_inference_model(
     weight_decay = 0.000,
     epoch = 36
 ):
-    from jtnn.jtprop_vae import JTPropVAE
-
+    # from jtnn.jtprop_vae import JTPropVAE
+    from jtnn.jtprop_vae_cross_att import JTPropVAE
+    shuffle = False
+    # run = None
+    run = wandb.init(
+        entity="zhengxueyingbupt-global-health-drug-discovery-institute",
+        project="dev",
+        config={
+            "model_params": model_params,
+            "epochs": epoch,
+            "beta": beta,
+            "shuffle": shuffle,
+            "framework": "chemberta transformer",
+        },
+    )
     smiles = toxdata.smiles
     props = toxdata.val
     print(f'props[:10]: {props[:10]}')
@@ -120,12 +134,11 @@ def derive_inference_model(
         dataset,
         batch_size=batch_size,
         # shuffle=True,
-        shuffle=False,
+        shuffle=shuffle,
         num_workers=num_threads,
         collate_fn=lambda x: x,
         # drop_last=True,
     )
-    from jtnn.jtprop_vae import JTPropVAE
 
     model = JTPropVAE(vocab, **model_params).to(device)            
     optimizer = optim.Adam(model.parameters(), lr=base_lr, weight_decay=weight_decay)
@@ -145,6 +158,7 @@ def derive_inference_model(
         model_name,
         MAX_EPOCH=epoch,
         PRINT_ITER=20,
+        wandb_run=run,
     )
     # train (set a smaller initial LR, beta to  0.005)
     optimizer = optim.Adam(model.parameters(), lr=0.0003,weight_decay=weight_decay)
@@ -164,6 +178,7 @@ def derive_inference_model(
         model_name=model_name,
         MAX_EPOCH=epoch,
         PRINT_ITER=20,
+        wandb_run=run,
     )
 
     # --- fine tune AE
@@ -292,6 +307,7 @@ def pre_train_jtvae(
     model_name,
     MAX_EPOCH=36,
     PRINT_ITER=20,
+    wandb_run=None,
 ):
     my_log = open(model_dir + "/loss-pre.txt", "w")
     for epoch in tqdm(range(MAX_EPOCH)):
@@ -306,7 +322,7 @@ def pre_train_jtvae(
                         node.cand_mols.append(node.label_mol)
             model.zero_grad()
             torch.cuda.empty_cache()
-            loss, kl_div, wacc, tacc, sacc, dacc, pacc = model(batch, beta=0)
+            loss, kl_div, wacc, tacc, sacc, dacc, pacc = model(batch, beta=0, wandb_run=wandb_run, total_step_count=total_step_count)
             loss.backward()
             optimizer.step()
             word_acc += wacc
@@ -367,6 +383,7 @@ def train_jtvae(
     model_name,
     MAX_EPOCH=36,
     PRINT_ITER=20,
+    wandb_run=None,
 ):
     my_log = open(model_dir + "/loss-ref.txt", "w")
     for epoch in tqdm(range(MAX_EPOCH)):
@@ -380,7 +397,7 @@ def train_jtvae(
                         node.cand_mols.append(node.label_mol)
             model.zero_grad()
             torch.cuda.empty_cache()
-            loss, kl_div, wacc, tacc, sacc, dacc, pacc = model(batch, beta)
+            loss, kl_div, wacc, tacc, sacc, dacc, pacc = model(batch, beta, wandb_run, total_step_count=total_step_count)
             loss.backward()
             optimizer.step()
             word_acc += wacc
@@ -495,7 +512,7 @@ def evaluate_predictions_model(model, smiles, props, vis):
         df_feature.append(feature[k].cpu().detach().numpy().squeeze())
     df_feature = pd.DataFrame(df_feature, index=feature.keys(), columns=[f"Feature_{i}" for i in range(56)])
 
-    df_feature.to_csv("/mnt/disk1/xueying/jtvae/data/trainset/all_data_trans_7341_nov_feature.csv")
+    # df_feature.to_csv("/mnt/disk1/xueying/jtvae/data/trainset/all_data_trans_7341_nov_feature.csv")
     # TODO do reconstruction test
 
     if vis is not None:
@@ -993,12 +1010,15 @@ def reconstruct(csv_file, assay_id, filter_mols=True,
         + str(model_params["depth"])
     )
 
-    model_dir = assay_dir + "/jtvae/" + model_name
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
+
         
     from jtnn.jtprop_vae import JTPropVAE
     model = JTPropVAE(vocab, **model_params).to(device)
+    
+    model_dir = assay_dir + "/jtvae/" + model_name
+    infer_dir = model_dir + "/infer/"
+    param = torch.load(infer_dir + "/model-ref.iter-0")
+    model.load_state_dict(param) # TODO CHANGE
     model = model.eval()
     # for it, batch in enumerate(dataloader):
     #         for mol_tree, _ in batch:
@@ -1062,11 +1082,12 @@ def get_vocab_v2(assay_dir, assay_id, toxdata, smiles_col, n_jobs=None):
 
 
 if __name__ == "__main__":
-    df = pd.read_csv('/mnt/disk1/xueying/jtvae/topscience/TopScience_Dataset1_forGeneralUse_400000.csv')
-    # train = compute_properties(df)
+    df = pd.read_csv('/mnt/disk1/xueying/deepmirror/data/genenrated_molecules.csv')
+    df['mols'] = df['SMILES'].apply(Chem.MolFromSmiles)
+    train = compute_properties(df)
+    train.to_csv('/mnt/disk1/xueying/deepmirror/data/genenrated_molecules_with_prop.csv', index=False)
     # reconstruct('/mnt/disk1/xueying/mol-gen/JAEGER/models/training_data/Novartis_GNF_rm_error_5251_v3.csv', 'all_data_trans_7341')
-    # train.to_csv('/mnt/disk1/xueying/mol-gen/JAEGER/models/assays/Novartis_GNF/output/train_with_prop.csv', index=False)
     # _, _, tox_data = load_data('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models/training_data/Novartis_GNF_cleaned_with_prop.csv', filter_mols=True, drop_qualified=False, pac50=True)
-    get_vocab_v2('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models/assays/topscience', 'topscience', df, 'Cleaned_SMILES', 100)
+    # get_vocab_v2('/mnt/disk1/xueying/jtvae/Jaeger/JAEGER/models/assays/topscience', 'topscience', df, 'Cleaned_SMILES', 100)
 
 
