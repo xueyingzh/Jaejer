@@ -44,12 +44,6 @@ from toxsquad.modelling import *
 from toxsquad.visualizations import Visualizations
 
 # --- toxsquad
-
-
-
-
-
-
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
 
@@ -108,7 +102,8 @@ def derive_inference_model(
     beta=0.005,
     num_threads = 24,
     weight_decay = 0.000,
-    epoch = 36
+    epoch = 36,
+    wandb_name = "wandb_name",
 ):
     # from jtnn.jtprop_vae import JTPropVAE
     from jtnn.jtprop_vae_cross_att import JTPropVAE
@@ -116,7 +111,9 @@ def derive_inference_model(
     # run = None
     run = wandb.init(
         entity="zhengxueyingbupt-global-health-drug-discovery-institute",
-        project="dev",
+        # project="dev",
+        project='vis_weight_0610',
+        name=wandb_name,
         config={
             "model_params": model_params,
             "epochs": epoch,
@@ -157,7 +154,7 @@ def derive_inference_model(
         total_step_count,
         model_name,
         MAX_EPOCH=epoch,
-        PRINT_ITER=20,
+        PRINT_ITER=36,
         wandb_run=run,
     )
     # train (set a smaller initial LR, beta to  0.005)
@@ -458,7 +455,7 @@ def train_jtvae(
 
 
 # ------------ MODEL EVALUATION ROUTINES ------------
-def evaluate_predictions_model(model, smiles, props, vis):
+def evaluate_predictions_model(model, smiles, props, vis, wandb_name):
     """
     Return evaluation objects for JT-VAE model.
 
@@ -480,6 +477,12 @@ def evaluate_predictions_model(model, smiles, props, vis):
         - coords are x, y coordinates for the "performance plot"
           (where x=actual and y=predicted).
     """
+    run = wandb.init(
+        entity="zhengxueyingbupt-global-health-drug-discovery-institute",
+        # project="dev",
+        project='vis_weight_0610',
+        name=f'{wandb_name}_valid_test',
+    )
     predictions, feature = dict(), dict()
     n_molecules = len(smiles)
     coords = np.zeros((n_molecules, 2))
@@ -503,14 +506,20 @@ def evaluate_predictions_model(model, smiles, props, vis):
     corr = np.corrcoef(coords[:, 1], coords[:, 0])[0, 1]
     print("MSE: " + str(mse))
     print("Corr: " + str(corr))
+    if run is not None:
+        table = wandb.Table(columns=["Model", "MSE", "Corr"])
+
+        # 添加行数据
+        table.add_data(wandb_name, mse, corr)
+        wandb.log({"eval_results": table})
     scores = []
     scores.append(mse)
     scores.append(corr)
     # 提取并处理新张量
-    df_feature = []
-    for k in feature.keys():
-        df_feature.append(feature[k].cpu().detach().numpy().squeeze())
-    df_feature = pd.DataFrame(df_feature, index=feature.keys(), columns=[f"Feature_{i}" for i in range(56)])
+    # df_feature = []
+    # for k in feature.keys():
+    #     df_feature.append(feature[k].cpu().detach().numpy().squeeze())
+    # df_feature = pd.DataFrame(df_feature, index=feature.keys(), columns=[f"Feature_{i}" for i in range(840)])
 
     # df_feature.to_csv("/mnt/disk1/xueying/jtvae/data/trainset/all_data_trans_7341_nov_feature.csv")
     # TODO do reconstruction test

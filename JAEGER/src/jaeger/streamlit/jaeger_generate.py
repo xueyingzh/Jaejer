@@ -20,9 +20,9 @@ import time
 from itertools import compress
 
 import sys
-sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/icml18-jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk1/xueying/jtvae-trans/Jaejer/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/JAEGER/src')
 
 # --- JAEGER imports
 import jaeger as jgr
@@ -37,6 +37,7 @@ import rdkit.Chem as Chem
 import torch
 import torch.nn as nn
 
+from tqdm import tqdm
 from jaeger.utils.jtvae_utils import (
     check_for_similarity, check_for_similarity_to_collection_fp,
     compute_properties, get_neighbor_along_direction_graph,
@@ -151,7 +152,7 @@ def decode(model, new_samples, show_st=False, calcu_log = False):
             pass
 
     print(f'calcu_log: {calcu_log}')
-    for i in range(n_samples):
+    for i in tqdm(range(n_samples)):
         if my_bar is not None:
             my_bar.progress((i + 1) / n_samples)
 

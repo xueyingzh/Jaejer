@@ -15,10 +15,10 @@ limitations under the License.
 """
 
 import importlib
-import sys
-sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/icml18-jtnn')
-sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/JAEGER/src')
+import sys, os
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/JAEGER/src')
 
 import numpy as np
 import pandas as pd
@@ -174,7 +174,7 @@ def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_m
     TRAIN_INFERENCE_MODEL = True
     if TRAIN_INFERENCE_MODEL:
         derive_inference_model(
-            toxdata, vocab, infer_dir, model_params, vis, device, model_name, num_threads=num_threads, weight_decay=weight_decay
+            toxdata, vocab, infer_dir, model_params, vis, device, model_name, num_threads=num_threads, weight_decay=weight_decay, wandb_name=assay_id,
         )
         
 

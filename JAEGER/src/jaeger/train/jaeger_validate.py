@@ -16,9 +16,9 @@ limitations under the License.
 
 import importlib
 import sys
-sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/icml18-jtnn')
-sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
-sys.path.append('/mnt/disk/xueying/jtvae-trans/Jaejer/JAEGER/src')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
+sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/JAEGER/src')
 import torch
 
 import numpy as np
@@ -53,7 +53,7 @@ from jaeger.utils.jtvae_utils import *
 
 from jaeger.utils.jtvae_utils import load_data
 
-def validate(csv_file, assay_id, use_qualified, filter_mols = True):
+def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name = 'wandb_name'):
     model_name = 'jtvae-h-420-l-56-d-7' #TODO change this
     
     # --- LOAD DATA
@@ -81,13 +81,23 @@ def validate(csv_file, assay_id, use_qualified, filter_mols = True):
     vocab = get_vocab(assay_dir, assay_id, toxdata)
     model = JTPropVAE(vocab, **model_params).to(device)
     # param = torch.load(infer_dir + "/model-ref.iter-35")
-    param = torch.load(infer_dir + "/model-ref.iter-0")
+    files = [
+        (f, os.path.getmtime(os.path.join(infer_dir, f)))
+        for f in os.listdir(infer_dir)
+        if os.path.isfile(os.path.join(infer_dir, f))
+    ]
+    # 按修改时间排序（最新文件在最后）
+    files_sorted = sorted(files, key=lambda x: x[1])
+    # 取最后一个（最新修改的）
+    model_file = files_sorted[-1][0] if files_sorted else None
+    print(f"Using model: {model_file}")
+    param = torch.load(infer_dir + "/" + model_file)
     model.load_state_dict(param) # TODO CHANGE    
     model = model.eval()
 
 
     # --- CHECK PREDICTIONS
-    scores, coords = evaluate_predictions_model(model, toxdata.smiles, toxdata.val, None)
+    scores, coords = evaluate_predictions_model(model, toxdata.smiles, toxdata.val, None, wandb_name)
     coords_df = pd.DataFrame(data=coords, columns=["gt", "pred"])
     coords_df.to_csv(model_dir + "/predictions_training.csv")
 
@@ -142,7 +152,7 @@ def main():
     
     
     args = parser.parse_args()
-    validate(args.csv_file, args.assay_id, args.use_qualified, filter_mols = args.drop_larger_mols)
+    validate(args.csv_file, args.assay_id, args.use_qualified, filter_mols = args.drop_larger_mols, wandb_name=args.assay_id)
     
 
 

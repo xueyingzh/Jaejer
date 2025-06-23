@@ -38,13 +38,15 @@ def set_batch_nodeID(mol_batch, vocab):
                 node.wid = wid
             tot += 1
 
+#yixin debug
 class JTPropVAE(nn.Module):
-    def __init__(self, vocab, hidden_size, latent_size, depth, out_size=1, prop_loss=nn.MSELoss):
+    def __init__(self, vocab,  hidden_size, latent_size, depth, model_pooling='average', out_size=1, prop_loss=nn.MSELoss):
         super(JTPropVAE, self).__init__()
         self.vocab = vocab
         self.hidden_size = hidden_size
         self.latent_size = latent_size
         self.depth = depth
+        self.model_pooing = model_pooling
 
         self.embedding = nn.Embedding(vocab.size(), hidden_size)
         self.jtnn = JTNNEncoder(vocab, hidden_size, self.embedding)
@@ -79,21 +81,30 @@ class JTPropVAE(nn.Module):
             ResidualBlock(self.hidden_size),
             nn.Linear(self.hidden_size, out_size)
        )    
-        self.cross_attn = BatchCrossAttention(self.hidden_size)    
+        self.cross_attn = BatchCrossAttention(self.hidden_size) 
+        # 新增预归一化层
+        self.pre_layernorm_jt = nn.LayerNorm(hidden_size)
+        self.pre_layernorm_seq = nn.LayerNorm(hidden_size) 
+        # # 层归一化, norm1&norm2
+        self.layernormjt = nn.LayerNorm(self.hidden_size)
+        self.layernormseq = nn.LayerNorm(self.hidden_size) 
+        # # 残差norm3
+        self.res_layernormjt = nn.LayerNorm(self.hidden_size)
+        self.res_layernormseq = nn.LayerNorm(self.hidden_size)
         #self.prop_loss = nn.MSELoss() # WG
         self.prop_loss = prop_loss()
         self.assm_loss = nn.CrossEntropyLoss(size_average=False)
         self.stereo_loss = nn.CrossEntropyLoss(size_average=False)
-
         self.init()
 
     def init(self): # WG
         for name, param in self.named_parameters():
-            if 'transmpn.model' in name:
-                # print(name)
+            if 'transmpn.model' in name or 'layernorm' in name:
+                # print(f"Skipping initialization for {name}")
                 continue
         # for param in self.parameters():
             if param.dim() == 1:
+                # print(f"Initializing {name} with zeros")
                 nn.init.constant_(param, 0)
             else:
                 nn.init.xavier_uniform_(param)        
@@ -122,24 +133,22 @@ class JTPropVAE(nn.Module):
         batch_size = len(mol_batch) # list (MolTree, tensor(prop_value)), len = batch_size
         mol_batch, prop_batch = list(zip(*mol_batch)) # mol_batch：list of MolTree, prop_batch:list of tensor values
         tree_mess, tree_vec, tnode_vecs, trans_logits, tran_vec = self.encode(mol_batch) # tree_vec：torch.Size([8, 420])，tnode_vecs：torch.Size([8, 20, 420])，trans_logits：torch.Size([8, 65, 420])，tran_vec：torch.Size([8, 420])
-        # print(tree_vec.shape, tran_vec.shape)
+        # print(tree_vec.mean().item(), tree_vec.std().item())
+        # print(tran_vec.mean().item(), tran_vec.std().item())
         
-        # 改成tree_vec：batch_size, node_num, hidden_size, tran_vec: batch_size, len(smiles), hidden_size
-        # q:tnode_vecs, kv:trans_logits
-        tree_value, tree_attn_weights = self.cross_attn(tnode_vecs, trans_logits) # tnode_vecs: torch.Size([8, 20, 420]),trans_logits： torch.Size([8, 65, 420])
-        # q:trans_logits, kv:tnode_vecs
-        tran_value, tran_attn_weights = self.cross_attn(trans_logits, tnode_vecs) # tnode_vecs: torch.Size([8, 66, 840]), trans_logits: torch.Size([8, 420])
+        # tnode_mean, tnode_std = tnode_vecs.mean().item(), tnode_vecs.std().item()
+        # trans_logits_mean, trans_logits_std = trans_logits.mean().item(), trans_logits.std().item()
         
-        if total_step_count % 1000 == 0:
-            pass
-            # self.log_attention_visualizations(tree_attn_weights, tran_attn_weights, tree_labels, smiles_tokens)
+        tnode_vecs = self.pre_layernorm_jt(tnode_vecs)
+        trans_logits = self.pre_layernorm_seq(trans_logits)
         
-        # tree_vec, tran_vec shape调整 tran_value:torch.Size([8, 65, 420]), tree_value: torch.Size([8, 20, 420])
-        # tree_vec = self.T_fc(tree_value.mean(dim=1)) # tree_vec: torch.Size([8, 420])
-        # tran_vec = self.G_fc(tran_value.mean(dim=1)) # tran_vec: torch.Size([8, 420])
-        tree_vec = tree_value.mean(dim=1)
-        tran_vec = tran_value.mean(dim=1)
+        # tnode_mean_a, tnode_std_a = tnode_vecs.mean().item(), tnode_vecs.std().item()
+        # trans_logits_mean_a, trans_logits_std_a = trans_logits.mean().item(), trans_logits.std().item()
+        tree_vec, tran_vec = self.cross_att_norm(tnode_vecs, trans_logits) # tree_vec: torch.Size([8, 420]), tran_vec: torch.Size([8, 420])
 
+        tree_vet_mean, tree_vet_std = tree_vec.mean().item(), tree_vec.std().item()
+        tran_vet_mean, tran_vet_std = tran_vec.mean().item(), tran_vec.std().item()
+        
         tree_mean = self.T_mean(tree_vec)
         tree_log_var = -torch.abs(self.T_var(tree_vec)) #Following Mueller et al.
         mol_mean = self.G_mean(tran_vec)
@@ -168,9 +177,50 @@ class JTPropVAE(nn.Module):
         
         loss = word_loss + topo_loss + assm_loss + 2 * stereo_loss + prop_loss + beta * kl_loss
         if wandb_run is not None:
-            wandb_run.log({"word_loss": word_loss, "topo_loss": topo_loss, "assm_loss": assm_loss, "stereo_loss": stereo_loss, "prop_loss": prop_loss, "kl div": kl_loss, "total loss": loss}, step=total_step_count)
+            wandb_run.log({"word_loss": word_loss, "topo_loss": topo_loss, "assm_loss": assm_loss, "stereo_loss": stereo_loss, "prop_loss": prop_loss,\
+                           "kl div": kl_loss, "total loss": loss, "tree_vet_mean": tree_vet_mean, "tree_vet_std": tree_vet_std, "tran_vet_mean": tran_vet_mean,\
+                            "tran_vet_std": tran_vet_std}, step=total_step_count)
+            # wandb_run.log({"word_loss": word_loss, "topo_loss": topo_loss, "assm_loss": assm_loss, "stereo_loss": stereo_loss, "prop_loss": prop_loss,\
+            #                "kl div": kl_loss, "total loss": loss, "tree_vet_mean": tree_vet_mean, "tree_vet_std": tree_vet_std, "tran_vet_mean": tran_vet_mean,\
+            #                 "tran_vet_std": tran_vet_std, "tnode_mean_before": tnode_mean,  "tnode_std_before": tnode_std,  "trans_logits_mean_before": trans_logits_mean,  "trans_logits_std_before": trans_logits_std, \
+            #                      "tnode_mean_after": tnode_mean_a,  "tnode_std_after": tnode_std_a,  "trans_logits_mean_after": trans_logits_mean_a,  "trans_logits_std_after": trans_logits_std_a}, step=total_step_count)
         return loss, kl_loss.item(), word_acc, topo_acc, assm_acc, stereo_acc, prop_loss.item()
 
+    def cross_att_norm(self, tnode_vecs, trans_logits):
+        tnode_vecs = self.pre_layernorm_jt(tnode_vecs)
+        trans_logits = self.pre_layernorm_seq(trans_logits)
+        
+        tree_value, tree_attn_weights = self.cross_attn(tnode_vecs, trans_logits) # tnode_vecs: torch.Size([8, 20, 420]),trans_logits： torch.Size([8, 65, 420])
+        # q:trans_logits, kv:tnode_vecs
+        tran_value, tran_attn_weights = self.cross_attn(trans_logits, tnode_vecs) # tnode_vecs: torch.Size([8, 66, 840]), trans_logits: torch.Size([8, 420])
+        
+        # # norm1
+        # tree_value = self.layernormjt(tree_value)
+        # tran_value = self.layernormseq(tran_value)
+        # # norm add, norm2
+        # tree_value = self.layernormjt(tree_value) + tnode_vecs
+        # tran_value = self.layernormseq(tran_value) + trans_logits
+        # # norm add norm, norm3
+        # tree_value = self.layernormjt(tree_value) + self.res_layernormjt(tnode_vecs)
+        # tran_value = self.layernormseq(tran_value) + self.res_layernormseq(trans_logits)
+        # norm 5 remove duplicate norm, pre_layernorm
+        tree_value = self.layernormjt(tree_value) + tnode_vecs
+        tran_value = self.layernormseq(tran_value) + trans_logits
+        
+        if self.model_pooing == "average":
+            # average pooling
+            tree_vec = tree_value.mean(dim=1)
+            tran_vec = tran_value.mean(dim=1)
+        elif self.model_pooing == "max":
+            # max pooling, tree_value:torch.Size([8, 23, 420]), tran_value: torch.Size([8, 91, 420])
+            tree_vec = torch.max(tree_value, dim=1)[0]  # [batch_size, hidden_size]
+            tran_vec = torch.max(tran_value, dim=1)[0]
+        elif self.model_pooing == "sum":
+            tree_vec = torch.sum(tree_value, dim=1)
+            tran_vec = torch.sum(tran_value, dim=1)
+            
+        return tree_vec, tran_vec
+        
     def assm(self, mol_batch, tran_vec, tree_mess):
         # 实现了一个组装模型（assembly model），该模型用于预测分子树的节点如何连接
         '''
@@ -472,13 +522,7 @@ class JTPropVAE(nn.Module):
         mol_tree.recover()
         _, tree_vec, tnode_vecs, trans_logits, tran_vec = self.encode([mol_tree])
 
-        # 应用交叉注意力（与forward一致）
-        tree_value, _ = self.cross_attn(tnode_vecs, trans_logits) 
-        tran_value, _ = self.cross_attn(trans_logits, tnode_vecs)
-        
-        # 生成最终向量（与forward一致）
-        tree_vec = tree_value.mean(dim=1)
-        tran_vec = tran_value.mean(dim=1)
+        tree_vec, tran_vec = self.cross_att_norm(tnode_vecs, trans_logits)
         
         tree_mean = self.T_mean(tree_vec)
         mol_mean = self.G_mean(tran_vec)
@@ -591,7 +635,7 @@ class JTPropVAE(nn.Module):
 class ResidualBlock(nn.Module):
     def __init__(self, hidden_size):
         super(ResidualBlock, self).__init__()
-        self.hidden_size = hidden_size;
+        self.hidden_size = hidden_size
         self.input_norm = nn.BatchNorm1d(hidden_size) # relu this
         self.ip0 = nn.Linear(hidden_size, hidden_size, bias=False)
         self.transform_norm = nn.BatchNorm1d(hidden_size) # relu this
