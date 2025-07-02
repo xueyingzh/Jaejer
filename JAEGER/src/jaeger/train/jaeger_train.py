@@ -19,6 +19,8 @@ import sys, os
 sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn')
 sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/icml18-jtnn/jtnn')
 sys.path.append('/mnt/disk1/xueying/jtvae_att/jtvae-trans/Jaejer/JAEGER/src')
+# 设置 WANDB_MODE 为 offline
+os.environ["WANDB_MODE"] = "offline"
 
 import numpy as np
 import pandas as pd

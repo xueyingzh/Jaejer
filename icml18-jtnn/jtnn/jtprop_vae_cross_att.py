@@ -52,7 +52,7 @@ class JTPropVAE(nn.Module):
         self.jtnn = JTNNEncoder(vocab, hidden_size, self.embedding)
         self.jtmpn = JTMPN(hidden_size, depth)
         self.transmpn = TransformerEncoder()
-        # self.mpn = MPN(hidden_size, depth)
+        self.mpn = MPN(hidden_size, depth)
         self.decoder = JTNNDecoder(vocab, hidden_size, int(latent_size / 2), self.embedding)
 
         self.T_mean = nn.Linear(hidden_size, int(latent_size / 2))
@@ -115,8 +115,8 @@ class JTPropVAE(nn.Module):
         tree_mess,tree_vec,tnode_vecs = self.jtnn(root_batch) # tree_vec:8*420, tree_mess字典，存储图中每个节点对的隐藏状态，这些隐藏状态在模型的前向传播过程中不断更新
 
         smiles_batch = [mol_tree.smiles for mol_tree in mol_batch]
-        # tran_vec = self.mpn(mol2graph(smiles_batch))
-        tran_vec, logits = self.transmpn(smiles_batch)
+        tran_vec, logits = self.mpn(mol2graph(smiles_batch))
+        # tran_vec, logits = self.transmpn(smiles_batch)
         return tree_mess, tree_vec, tnode_vecs, logits, tran_vec
 
     def encode_latent_mean(self, smiles_list):
@@ -287,8 +287,8 @@ class JTPropVAE(nn.Module):
             return create_var(torch.zeros(1)), 1.0
 
         batch_idx = create_var(torch.LongTensor(batch_idx))
-        # stereo_cands = self.mpn(mol2graph(stereo_cands))
-        stereo_cands, _ = self.transmpn(stereo_cands)
+        stereo_cands, _ = self.mpn(mol2graph(stereo_cands))
+        # stereo_cands, _ = self.transmpn(stereo_cands)
         stereo_cands = self.G_mean(stereo_cands)
         stereo_labels = tran_vec.index_select(0, batch_idx)
         scores = torch.nn.CosineSimilarity()(stereo_cands, stereo_labels)
@@ -437,8 +437,8 @@ class JTPropVAE(nn.Module):
         stereo_cands = decode_stereo(smiles2D) # list 手性化合物
         if len(stereo_cands) == 1: 
             return stereo_cands[0]
-        stereo_vecs, _ = self.transmpn(stereo_cands)
-        # stereo_vecs = self.mpn(mol2graph(stereo_cands))
+        # stereo_vecs, _ = self.transmpn(stereo_cands)
+        stereo_vecs, _ = self.mpn(mol2graph(stereo_cands))
         stereo_vecs = self.G_mean(stereo_vecs)
         scores = nn.CosineSimilarity()(stereo_vecs, tran_vec)
         _,max_id = scores.max(dim=0)

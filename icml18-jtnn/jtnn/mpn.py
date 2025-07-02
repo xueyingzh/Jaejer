@@ -4,6 +4,7 @@ import rdkit.Chem as Chem
 import torch.nn.functional as F
 from nnutils import *
 from chemutils import get_mol
+from torch.nn.utils.rnn import pad_sequence
 
 ELEM_LIST = ['C', 'N', 'O', 'S', 'F', 'Si', 'P', 'Cl', 'Br', 'Mg', 'Na', 'Ca', 'Fe', 'Al', 'I', 'B', 'K', 'Se', 'Zn', 'H', 'Cu', 'Mn', 'unknown']
 
@@ -39,7 +40,7 @@ def mol2graph(mol_batch):
     in_bonds,all_bonds = [],[(-1,-1)] #Ensure bond is 1-indexed
     scope = []
     total_atoms = 0
-
+    #  mol_batch is a list of SMILES strings, len = batch_size
     for smiles in mol_batch:
         mol = get_mol(smiles)
         #mol = Chem.MolFromSmiles(smiles)
@@ -83,7 +84,7 @@ def mol2graph(mol_batch):
             if all_bonds[b2][0] != y: # if the starting point of the bond is not y (so not b1) 
                 bgraph[b1,i] = b2 # get the bond index that shares an endpoint with the current bond ... all those bonds include the features of y' 
 
-    return fatoms, fbonds, agraph, bgraph, scope
+    return fatoms, fbonds, agraph, bgraph, scope # fatoms: torch.Size([240, 39]), fbonds: torch.Size([535, 50]), agraph: torch.Size([240, 6]), bgraph:torch.Size([535, 6]), scope:len = 8
 
 class MPN(nn.Module):
 
@@ -114,15 +115,23 @@ class MPN(nn.Module):
         nei_message = index_select_ND(message, 0, agraph)
         nei_message = nei_message.sum(dim=1)
         ainput = torch.cat([fatoms, nei_message], dim=1)
-        atom_hiddens = nn.ReLU()(self.W_o(ainput))
+        atom_hiddens = nn.ReLU()(self.W_o(ainput)) # torch.Size([240, 420])
         
-        mol_vecs = []
+        mol_vecs, atom_vecs = [], []
         for st,le in scope: #在atom层面再平均，整合成整个分子的feature
+            atom_vecs.append(atom_hiddens.narrow(0, st, le))
             mol_vec = atom_hiddens.narrow(0, st, le).sum(dim=0) / le
             mol_vecs.append(mol_vec)
 
+        atom_vecs = pad_sequence(
+            atom_vecs, 
+            batch_first=True,    # 输出形状为 [batch_size, max_len, feature_dim]
+            padding_value=0.0    # 填充值（默认0）
+        )
+        
         mol_vecs = torch.stack(mol_vecs, dim=0)
-        return mol_vecs
+        # atom_vecs = torch.stack(atom_vecs, dim=0)
+        return mol_vecs, atom_vecs  # 返回分子特征和原子特征
 
 
 
