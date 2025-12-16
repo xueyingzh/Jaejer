@@ -40,7 +40,7 @@ def set_batch_nodeID(mol_batch, vocab):
 
 #yixin debug
 class JTPropVAE(nn.Module):
-    def __init__(self, vocab,  hidden_size, latent_size, depth, model_pooling='average', out_size=1, prop_loss=nn.MSELoss, task_type='reg'):
+    def __init__(self, vocab,  hidden_size, latent_size, depth, model_pooling='average', out_size=1, hidden_multiplier=1, task_type='reg', dropout=0.25, res_block = 2):
         super(JTPropVAE, self).__init__()
         self.vocab = vocab
         # Increase capacity for reg by doubling sizes
@@ -69,51 +69,29 @@ class JTPropVAE(nn.Module):
         
         self.T_fc = nn.Linear(hidden_size * 2, hidden_size)
         self.G_fc = nn.Linear(hidden_size * 2, hidden_size)
-        # original
-        #self.propNN = nn.Sequential(
-        #        nn.Linear(self.latent_size, self.hidden_size),
-        #        nn.Tanh(),
-        #        nn.Linear(self.hidden_size, 1)
-        #)
-        # WG 11/04
-    #     self.propNN = nn.Sequential(
-    #         nn.Linear(self.latent_size, self.hidden_size),
-    #         nn.LeakyReLU(0.01),
-    #         ResidualBlock(self.hidden_size),
-    #         ResidualBlock(self.hidden_size),
-    #         ResidualBlock(self.hidden_size),
-    #         ResidualBlock(self.hidden_size),
-    #         ResidualBlock(self.hidden_size),
-    #         ResidualBlock(self.hidden_size),
-    #         ResidualBlock(self.hidden_size),
-    #         nn.Linear(self.hidden_size, out_size)
-    #    )   
         # xueying 1126
 
+        layers = []
         if self.task_type == 'reg':
-            # Increase capacity for reg (underfitting): more ResidualBlocks, lower dropout
-            self.propNN = nn.Sequential(
-                nn.Linear(self.latent_size, self.hidden_size * 2),
-                nn.LeakyReLU(0.01),
-                ResidualBlock(self.hidden_size * 2, dropout_rate=0.25),
-                ResidualBlock(self.hidden_size * 2, dropout_rate=0.25),
-                ResidualBlock(self.hidden_size * 2, dropout_rate=0.25),
-                ResidualBlock(self.hidden_size * 2, dropout_rate=0.25),
-                nn.Dropout(0.05),
-                nn.Linear(self.hidden_size * 2, out_size)
-            )
+            layers.append(nn.Linear(latent_size, hidden_size * hidden_multiplier))
+            layers.append(nn.LeakyReLU(0.01))
+            for i in range(res_block):
+                layers.append(ResidualBlock(hidden_size * hidden_multiplier, dropout_rate=dropout))
+            # Adding dropout layer
+            layers.append(nn.Dropout(dropout))           
+            # Final layer
+            layers.append(nn.Linear(hidden_size * hidden_multiplier, out_size))
         elif self.task_type == 'clf':
-            # Increase regularization for clf (overfitting): fewer ResidualBlocks, higher dropout
-            self.propNN = nn.Sequential(
-                nn.Linear(self.latent_size, self.hidden_size),
-                nn.LeakyReLU(0.01),
-                ResidualBlock(self.hidden_size, dropout_rate=0.3),
-                ResidualBlock(self.hidden_size, dropout_rate=0.3),
-                nn.Dropout(0.2),
-                nn.Linear(self.hidden_size, out_size)
-            )
+            layers.append(nn.Linear(self.latent_size, self.hidden_size))
+            layers.append(nn.LeakyReLU(0.01))
+            for i in range(res_block):
+                layers.append(ResidualBlock(self.hidden_size, dropout_rate=dropout))
+            layers.append(nn.Dropout(dropout))
+            layers.append(nn.Linear(self.hidden_size, out_size))
         else:
             raise ValueError("Invalid task_type! Choose 'reg' or 'clf'")
+        
+        self.propNN = nn.Sequential(*layers)
         self.cross_attn = BatchCrossAttention(hidden_size)
         # 新增预归一化层
         self.pre_layernorm_jt = nn.LayerNorm(hidden_size)
@@ -246,9 +224,9 @@ class JTPropVAE(nn.Module):
             prop_loss = self.prop_loss(prop_output, prop_label)  # Ensure labels are long for clf
         else:
             raise ValueError("Invalid task_type! Choose 'reg' or 'clf'")
-    
+
         # prop_loss = self.prop_loss(self.propNN(all_vec).squeeze(), prop_label)
-        
+
         loss = word_loss + topo_loss + assm_loss + 2 * stereo_loss + prop_loss + beta * kl_loss
         if wandb_run is not None:
             wandb_run.log({"word_loss": word_loss, "topo_loss": topo_loss, "assm_loss": assm_loss, "stereo_loss": stereo_loss, "prop_loss": prop_loss,\
@@ -258,7 +236,7 @@ class JTPropVAE(nn.Module):
             #                "kl div": kl_loss, "total loss": loss, "tree_vet_mean": tree_vet_mean, "tree_vet_std": tree_vet_std, "tran_vet_mean": tran_vet_mean,\
             #                 "tran_vet_std": tran_vet_std, "tnode_mean_before": tnode_mean,  "tnode_std_before": tnode_std,  "trans_logits_mean_before": trans_logits_mean,  "trans_logits_std_before": trans_logits_std, \
             #                      "tnode_mean_after": tnode_mean_a,  "tnode_std_after": tnode_std_a,  "trans_logits_mean_after": trans_logits_mean_a,  "trans_logits_std_after": trans_logits_std_a}, step=total_step_count)
-        return loss, kl_loss.item(), word_acc, topo_acc, assm_acc, stereo_acc, prop_loss.item()
+        return loss, prop_loss
 
     def cross_att_norm(self, tnode_vecs, trans_logits):
         tnode_vecs = self.pre_layernorm_jt(tnode_vecs)

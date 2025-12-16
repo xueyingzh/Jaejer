@@ -209,6 +209,7 @@ def filter_samples(reference_sample, samples, model, bypass=False, direction="In
 
     if bypass:
         fit_samples_idx: predictions > 0
+    # fit_samples_idx = predictions > 0
 
         
     fit_samples = list(compress(samples, fit_samples_idx))

@@ -86,7 +86,8 @@ def preprocess_redux(assay_data,
                      n_atoms_filter=50,
                      convert_to_pac50=False,
                      drop_qualified = True,
-                     convert_fps_to_numpy = False):
+                     convert_fps_to_numpy = False, 
+                     task=None):
     toxdata = assay_data
     if drop_qualified:
         toxdata = toxdata.dropnotnull("qualifier")
@@ -94,6 +95,15 @@ def preprocess_redux(assay_data,
     print('convert_to_pac50', convert_to_pac50)
     toxdata = toxdata.drop(columns = ["qualifier"])
     toxdata = toxdata.replace([np.inf, -np.inf], np.nan).dropna(subset=["val"])
+
+    if task is None:
+        # 离散 label 就视为分类
+        uniq = np.unique(toxdata['val'])
+        if len(uniq) <= 10 and np.allclose(uniq, uniq.astype(int)):
+            task = "cls"
+            convert_to_pac50 = False
+        else:
+            task = "reg"
 
     if convert_to_pac50:
         toxdata['val'] = toxdata['val'].apply(np.log10)

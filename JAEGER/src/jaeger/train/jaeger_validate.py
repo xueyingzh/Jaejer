@@ -53,16 +53,16 @@ from jaeger.utils.jtvae_utils import *
 
 from jaeger.utils.jtvae_utils import load_data
 
-def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name = 'wandb_name'):
+def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name = 'wandb_name', pac50 = False):
     model_name = 'jtvae-h-420-l-56-d-7' #TODO change this
     
-    # --- LOAD DATA
-    pac50=True
-    if assay_id == '152930':
-        pac50=False
+    # # --- LOAD DATA
+    # if assay_id == '152930':
+    #     pac50=False
 
-    if assay_id == 'malaria_blood_stage':        
-        pac50=False
+    # if assay_id == 'malaria_blood_stage':        
+    #     pac50=False
+
 
     drop_qualified = not use_qualified
     morgans_df, targets, toxdata =load_data(csv_file, pac50=pac50, drop_qualified=drop_qualified, filter_mols = filter_mols)
@@ -84,7 +84,7 @@ def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name =
     files = [
         (f, os.path.getmtime(os.path.join(infer_dir, f)))
         for f in os.listdir(infer_dir)
-        if os.path.isfile(os.path.join(infer_dir, f))
+        if os.path.isfile(os.path.join(infer_dir, f)) and f.startswith("model")
     ]
     # 按修改时间排序（最新文件在最后）
     files_sorted = sorted(files, key=lambda x: x[1])
@@ -95,6 +95,13 @@ def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name =
     model.load_state_dict(param) # TODO CHANGE    
     model = model.eval()
 
+    # Print the model architecture
+    print("Model Architecture:")
+    print(model)
+
+    # Calculate and print the total number of parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total Number of Parameters: {total_params}")
 
     # --- CHECK PREDICTIONS
     scores, coords = evaluate_predictions_model(model, toxdata.smiles, toxdata.val, None, wandb_name)
@@ -134,6 +141,9 @@ def main():
         "--assay_id", type=str, default="", help="Assay ID",
     )
     parser.add_argument(
+        '--is_ac50', action='store_true'
+    ) 
+    parser.add_argument(
         "--use_qualified",
         type=str2bool,
         nargs="?",
@@ -152,7 +162,7 @@ def main():
     
     
     args = parser.parse_args()
-    validate(args.csv_file, args.assay_id, args.use_qualified, filter_mols = args.drop_larger_mols, wandb_name=args.assay_id)
+    validate(args.csv_file, args.assay_id, args.use_qualified, filter_mols = args.drop_larger_mols, wandb_name=args.assay_id, pac50 = args.is_ac50)
     
 
 

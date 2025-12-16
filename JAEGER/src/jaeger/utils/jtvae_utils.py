@@ -53,7 +53,62 @@ import pickle
 
 # ------------ PRE-PROCESSING ROUTINES ------------
 from mol_tree import *
+from sklearn.metrics import confusion_matrix, precision_recall_curve, auc
 
+def create_var(tensor, requires_grad=None):
+    from torch.autograd import Variable
+    if requires_grad is None:
+        return Variable(tensor).cuda()
+    else:
+        return Variable(tensor, requires_grad=requires_grad).cuda()
+
+def extract_and_save_propnn_features(model, dataloader, save_path="propnn_valid_features.npz", batch_size=32):
+    """
+    Extracts latent embeddings (inputs to propNN) and labels from the VAE.
+    
+    Args:
+        model: The trained JTPropVAE model.
+        toxdata: The dataframe containing smiles and values (dataset).
+        save_path: Where to save the .npz file.
+    """
+    print(f"Extracting features to {save_path}...")
+    model.eval()
+    
+    # Prepare Data Loader
+    # Note: Reusing the specific collation logic from your existing code
+    all_features = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Encoding"):
+            for mol_tree, _ in batch:
+                for node in mol_tree.nodes:
+                    if node.label not in node.cands:
+                        node.cands.append(node.label)
+                        node.cand_mols.append(node.label_mol)
+            # Unpack batch (list of tuples -> tuple of lists)
+            mol_batch, prop_batch = list(zip(*batch))
+            
+            # Get the latent vector (Concatenated Tree Mean + Mol Mean)
+            # Shape: [Batch_Size, Latent_Size]
+            latent_vectors = model.encode_for_prop(mol_batch)
+            
+            # Store features
+            all_features.append(latent_vectors.cpu().numpy())
+            
+            # Store labels
+            # Handle tensor scalar wrapping
+            labels = [p.item() if isinstance(p, torch.Tensor) else p for p in prop_batch]
+            all_labels.append(np.array(labels))
+
+    # Concatenate all batches
+    X = np.concatenate(all_features, axis=0)
+    y = np.concatenate(all_labels, axis=0)
+    print(f"y shape: {y.shape}, y[:10]: {y[:10]}")
+    
+    print(f"Saving Features shape: {X.shape}, Labels shape: {y.shape}")
+    np.savez(save_path, features=X, labels=y)
+    print("Save complete.")
 
 def save_object(obj, filename):
     with open(filename, "wb") as output:  # Overwrites any existing file.
@@ -108,22 +163,32 @@ def derive_inference_model(
     # from jtnn.jtprop_vae import JTPropVAE
     from jtnn.jtprop_vae_cross_att import JTPropVAE
     shuffle = False
-    # run = None
-    run = wandb.init(
-        entity="zhengxueyingbupt-global-health-drug-discovery-institute",
-        # project="dev",
-        project='vis_weight_0610',
-        name=wandb_name,
-        config={
-            "model_params": model_params,
-            "epochs": epoch,
-            "beta": beta,
-            "shuffle": shuffle,
-            "framework": "chemberta transformer",
-        },
-    )
+    run = None
+    # run = wandb.init(
+    #     entity="zhengxueyingbupt-global-health-drug-discovery-institute",
+    #     # project="dev",
+    #     project='vis_weight_0610',
+    #     name=wandb_name,
+    #     config={
+    #         "model_params": model_params,
+    #         "epochs": epoch,
+    #         "beta": beta,
+    #         "shuffle": shuffle,
+    #         "framework": "chemberta transformer",
+    #     },
+    # )
     smiles = toxdata.smiles
     props = toxdata.val
+
+    uniq = np.unique(props)
+    if len(uniq) <= 10 and np.allclose(uniq, uniq.astype(int)):
+        task = "clf"
+    else:
+        task = "reg"
+
+    print(f"Detected task: {task}")
+    model_params['task_type'] = task
+
     print(f'props[:10]: {props[:10]}')
     dataset = ToxPropDataset(smiles, props)
     batch_size = 8
@@ -134,13 +199,16 @@ def derive_inference_model(
         shuffle=shuffle,
         num_workers=num_threads,
         collate_fn=lambda x: x,
-        # drop_last=True,
+        drop_last=True,
     )
 
     model = JTPropVAE(vocab, **model_params).to(device)            
     optimizer = optim.Adam(model.parameters(), lr=base_lr, weight_decay=weight_decay)
     scheduler = lr_scheduler.ExponentialLR(optimizer, 0.9)
     scheduler.step()
+    
+    # extract_and_save_propnn_features(model, dataloader, "propnn_valid_features.npz")
+    # exit(0)
     # --- pre-train AE
     total_step_count = 0
     total_step_count = pre_train_jtvae(
@@ -453,9 +521,230 @@ def train_jtvae(
     my_log.close()
     return total_step_count
 
+def evaluate_predictions_model(
+    model, 
+    smiles, 
+    props, 
+    vis,  
+    wandb_name,
+    task=None  # 可为 None（自动判断）、"reg"、"cls"
+):
+    """
+    Extended evaluator: supports both regression & classification.
+
+    Parameters
+    ----------
+    model : JT-VAE or other model with model.predict(smiles)
+    smiles : pandas.Series
+    props : pandas.Series (regression: float; classification: int/0-1)
+    vis : visualization object
+    wandb_name : str
+    task : None / "reg" / "cls"
+        - None: automatically infer task type based on props
+        - "reg": regression
+        - "cls": classification
+
+    Returns
+    -------
+    scores : dict
+        regression: {"mse":..., "corr":...}
+        classification: {"acc":..., "auroc":..., "auprc":...}
+    coords : numpy array or dict
+        regression: Nx2 array (actual, predicted)
+        classification: dict with keys: y_true, y_pred, y_prob
+    """
+
+    # ----------- 1. 推断任务类型 -----------
+    if task is None:
+        # 离散 label 就视为分类
+        uniq = np.unique(props)
+        if len(uniq) <= 10 and np.allclose(uniq, uniq.astype(int)):
+            task = "clf"
+        else:
+            task = "reg"
+
+    print(f"Detected task: {task}")
+
+    # ----------- 2. 初始化 WandB -----------
+    # run = wandb.init(
+    #     entity="zhengxueyingbupt-global-health-drug-discovery-institute",
+    #     project='vis_weight_0610',
+    #     name=f'{wandb_name}_valid_test_{task}',
+    # )
+    run = None
+
+    model = model.eval()
+    n = len(smiles)
+
+    # 回归时 Nx2；分类时保存列表
+    if task == "reg":
+        coords = np.zeros((n, 2))
+    else:
+        y_true, y_pred, y_prob = [], [], []
+
+    # ----------- 3. 预测循环 -----------
+    for k, idx in enumerate(smiles.index):
+        print_status(k, n)
+        sml = smiles.loc[idx]
+        y = props.loc[idx]
+
+        out, vec = model.predict(sml)  # 模型输出：回归→tensor；分类→logits/prob
+
+        if task == "reg":
+            pred = float(out.item())
+            coords[k, 0] = float(y)
+            coords[k, 1] = pred
+
+        else:  # 分类
+            out_np = out.detach().cpu().numpy().ravel()
+            # 若输出是 logits → 做 softmax/sigmoid
+            if len(out_np) == 1:
+                prob = 1 / (1 + np.exp(-out_np[0]))
+                pred = int(prob >= 0.5)
+            else:
+                exp = np.exp(out_np - out_np.max())
+                prob_vec = exp / exp.sum()
+                prob = float(prob_vec[1])
+                pred = int(prob_vec.argmax())
+
+            y_true.append(int(y))
+            y_pred.append(pred)
+            y_prob.append(prob)
+
+    model = model.train()
+
+    # ----------- 4. 统计指标 -----------
+    scores = {}
+    if task == "reg":
+        print(coords[:10, :])
+        actual = coords[:, 0]
+        pred = coords[:, 1]
+        mse = np.mean((pred - actual)**2)
+        corr = np.corrcoef(pred, actual)[0, 1]
+
+        print(f"MSE: {mse}")
+        print(f"Corr: {corr:.4f}")
+
+        scores["mse"] = mse
+        scores["corr"] = corr
+
+        # WandB
+        table = wandb.Table(columns=["Model", "MSE", "Corr"])
+        table.add_data(wandb_name, mse, corr)
+
+        # vis scatter
+        if vis is not None:
+            vis.plot_scatter_gt_predictions(
+                coords, f"MSE={mse:.2f}, r={corr:.2f}", ""
+            )
+
+        return scores, coords
+
+    else:
+        # --------- 分类任务 metrics ----------
+        labels, predictions = np.array(y_true), np.array(y_pred)
+        cm = confusion_matrix(labels, predictions, labels=[1, 0])
+        print(f'Confusion Matrix:\n{cm}')
+        
+        tp = cm[0, 0]  # True Positive
+        fn = cm[0, 1]  # False Negative
+        fp = cm[1, 0]  # False Positive
+        tn = cm[1, 1]  # True Negative
+        total_samples = tp + tn + fp + fn
+
+        precision = tp / (tp + fp) if (tp + fp) != 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) != 0 else 0.0
+        accuracy = (tp + tn) / total_samples if total_samples != 0 else 0.0
+        print(f'Precision: {precision * 100:.2f}% Recall: {recall * 100:.2f}% Accuracy: {accuracy * 100:.2f}%')
+
+        metric_value_dict = aupr(predictions, labels)
+        print(f'AUPR[1], AUPR[0], AUPR[hmean]: {metric_value_dict[0] * 100:.2f}%, {metric_value_dict[1] * 100:.2f}%, {metric_value_dict[2]* 100:.2f}%')
+        metric = calculate_PR(predictions, labels)
+        print(f'Precision[1], Recall[1], Precision[0], Recall[0]: {metric[0] * 100:.2f}%, {metric[1] * 100:.2f}%, {metric[2] * 100:.2f}%, {metric[3] * 100:.2f}%')
+
+        # ------ 返回 ------
+        scores = {
+            "AUPR[1]": metric_value_dict[0],
+            "AUPR[0]": metric_value_dict[1],
+            "AUPR[hmean]": metric_value_dict[2],
+            "Precision[1]": metric[0],
+            "Recall[1]": metric[1],
+            "Precision[0]": metric[2],
+            "Recall[0]": metric[3],
+            "confusion_matrix": cm
+        }
+
+        coords = {
+            "y_true": np.array(y_true),
+            "y_pred": np.array(y_pred),
+            "y_prob": np.array(y_prob)
+        }
+
+        return scores, coords
+    
+def calculate_PR(predicted_labels, true_labels):
+    """
+    Calculate precision and recall for single experiment.
+    :param predicted_labels: list of ints, list of predicted labels, i.e., 1 or 0.
+    :param true_labels: list of ints, list of true labels, i.e., 1, 0, Nan.
+    :return: list of floats, precision_1, recall_1, precision_0, recall_0.
+    """
+    assert len(predicted_labels) == len(true_labels), 'Error: Number of predicted labels should be the same as that of true labels'
+    TP, FP, TN, FN = 0, 0, 0, 0
+
+    for i, pred_label in enumerate(predicted_labels):
+        true_label = true_labels[i]
+        try:
+            pred_label, true_label = int(pred_label), int(true_label)
+            if pred_label == 1 and true_label == 1:
+                TP += 1
+            elif pred_label == 1 and true_label == 0:
+                FP += 1
+            elif pred_label == 0 and true_label == 0:
+                TN += 1
+            elif pred_label == 0 and true_label == 1:
+                FN += 1
+        except:
+            continue
+
+    # precision for label 1
+    precision_1 = np.nan if TP + FP == 0 else TP * 1.0 / (TP + FP)
+    # recall for label 1
+    recall_1 = np.nan if TP + FN == 0 else TP * 1.0 / (TP + FN)
+    # precision for label 0
+    precision_0 = np.nan if TN + FN == 0 else TN * 1.0 / (TN + FN)
+    # recall for label 0
+    recall_0 = np.nan if TN + FP == 0 else TN * 1.0 / (TN + FP)
+
+    return precision_1, recall_1, precision_0, recall_0
+
+
+def aupr(predicted_scores, true_labels):
+    """
+    Calculate AUPR[0], AUPR[1] and AUPR[hmean] for single experiment.
+    :param predicted_scores: list of floats, list of predicted scores, i.e., 1 or 0.
+    :param true_labels: list of ints, list of true labels, i.e., 1, 0.
+    :return: list of floats, AUPR[0], AUPR[1], AUPR[hmean]
+    """
+    auprs = []
+
+    # aupr for each class
+    predicted_scores = np.array(predicted_scores)
+    predicted_scores = np.vstack((1 - predicted_scores, predicted_scores))
+    for i in range(2):
+        p, r, th = precision_recall_curve(true_labels, predicted_scores[i,:], pos_label=i)
+        aupr = auc(r, p)
+        auprs.append(aupr)
+    # hmean aupr
+    if all(x > 0.0 for x in auprs):
+        aupr_hmean = scipy.stats.hmean(auprs)
+    else:
+        aupr_hmean = 0.0
+
+    return auprs[1], auprs[0], aupr_hmean
 
 # ------------ MODEL EVALUATION ROUTINES ------------
-def evaluate_predictions_model(model, smiles, props, vis, wandb_name):
+def evaluate_predictions_model_bk(model, smiles, props, vis, wandb_name):
     """
     Return evaluation objects for JT-VAE model.
 

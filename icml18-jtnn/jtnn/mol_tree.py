@@ -159,5 +159,5 @@ if __name__ == "__main__":
     #         cset.add(c.smiles)
     # for x in cset:
     #     print(x)
-    smiles = 'CNC(=O)C(Cc1ccc(-c2ccccc2O)cc1)n1c(=O)[nH]c2cc(C(=O)Nc3ccc(C)c(C)c3)ccc21'
+    smiles = 'CC1(C)N=C(N)N=C(N)N1C2=CC=C(Br)C=C2'
     mol_tree = MolTree(smiles)
