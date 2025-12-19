@@ -84,10 +84,14 @@ def aupr(predicted_scores, true_labels):
     return auprs[0], auprs[1], aupr_hmean
 
 
-def train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, train_prop, valid_prop, epochs=100, lr=1e-3, device='cuda', weight_decay=0.000, beta=0):
-    """Train propNN and return train/valid losses per epoch"""
+def train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, prop_train_losses, prop_valid_losses, train_smiles, train_props, valid_smiles, valid_props, task_type, train_metrics, valid_metrics, epochs=100, lr=1e-3, device='cuda', weight_decay=0, beta=0, patience=5, propnn_frozen = False):
+    """Train propNN and return train/valid losses per epoch, with early stopping for propNN"""
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    best_valid_prop_loss = float('inf')
+    patience_counter = 0
+    # propnn_frozen = False
 
     for epoch in tqdm(range(epochs)):
         model.train()
@@ -107,7 +111,7 @@ def train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, 
             epoch_train_prop_loss += prop_loss.item()
 
         train_losses.append(epoch_train_loss / len(train_loader))
-        train_prop.append(epoch_train_prop_loss / len(train_loader))
+        prop_train_losses.append(epoch_train_prop_loss / len(train_loader))
 
         # Validation
         model.eval()
@@ -124,9 +128,35 @@ def train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, 
                 epoch_valid_prop_loss += prop_loss.item()
 
         valid_losses.append(epoch_valid_loss / len(valid_loader))
-        valid_prop.append(epoch_valid_prop_loss / len(valid_loader))
+        prop_valid_losses.append(epoch_valid_prop_loss / len(valid_loader))
 
-    return
+        # Evaluate metrics on full train and valid sets
+        train_epoch_metrics = evaluate_propnn(model, train_smiles, train_props, device, task_type)
+        valid_epoch_metrics = evaluate_propnn(model, valid_smiles, valid_props, device, task_type)
+        train_metrics.append(train_epoch_metrics)
+        valid_metrics.append(valid_epoch_metrics)
+
+        # Early stopping for propNN
+        if not propnn_frozen:
+            if epoch_valid_prop_loss < best_valid_prop_loss:
+                best_valid_prop_loss = epoch_valid_prop_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Early stopping triggered for propNN at epoch {epoch+1}. Freezing propNN weights.")
+                    for param in model.propNN.parameters():
+                        param.requires_grad = False
+                    propnn_frozen = True
+                    # Optionally, you can adjust optimizer to exclude frozen params
+                    optimizer = optim.Adam([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=weight_decay)
+        # else: 
+        #     # 打印冻结后的参数requires_grad
+        #     print("After freezing the propNN layers:")
+        #     for name, param in model.propNN.named_parameters():
+        #         print(f"Layer: {name}, requires_grad: {param.requires_grad}")
+
+    return propnn_frozen
 
 
 def evaluate_propnn(model, smiles, props, device='cuda', task_type='reg'):
@@ -134,7 +164,7 @@ def evaluate_propnn(model, smiles, props, device='cuda', task_type='reg'):
     model.eval()
     preds, probs = [], []
     targets = []
-    for k, idx in enumerate(smiles.index):    
+    for k, idx in enumerate(smiles.index):
         sml = smiles.loc[idx]
         targets.append(props.loc[idx])
 
@@ -192,6 +222,27 @@ def plot_losses2(train_losses, valid_losses, config, save_path):
     plt.savefig(save_path)
     plt.close()
 
+def plot_metrics(train_metrics, valid_metrics, task_type, config, save_path):
+    """Plot train and valid metrics over epochs"""
+    plt.figure(figsize=(10, 6))
+    if task_type == 'reg':
+        train_scores = [m['mse'] for m in train_metrics]
+        valid_scores = [m['mse'] for m in valid_metrics]
+        ylabel = 'MSE'
+    else:
+        train_scores = [m['aupr_hmean'] for m in train_metrics]
+        valid_scores = [m['aupr_hmean'] for m in valid_metrics]
+        ylabel = 'AUPR HMean'
+    plt.plot(train_scores, label='Train Score')
+    plt.plot(valid_scores, label='Valid Score')
+    plt.xlabel('Epoch')
+    plt.ylabel(ylabel)
+    plt.title(f'PropNN Metrics - Config: {config}')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(save_path)
+    plt.close()
+
 
 def main():
     parser = argparse.ArgumentParser(description="PropNN Hyperparameter Search")
@@ -208,10 +259,11 @@ def main():
     parser.add_argument("--num_threads", type=int, default=12, help="Number of workers")
     parser.add_argument(
         '--use_vocab', type=bool, default=True
-    ) 
+    )
     parser.add_argument(
         '--is_ac50', action='store_true'
-    ) 
+    )
+    parser.add_argument("--patience", type=int, default=5, help="Patience for early stopping on propNN")
 
     args = parser.parse_args()
 
@@ -245,10 +297,11 @@ def main():
         + str(model_params["depth"])
     )
     assay_dir = jgr.BASE_DIR + "/" + str(args.assay_id)
-    model_dir = assay_dir + "/jtvae/" + model_name        
+    model_dir = assay_dir + "/jtvae/" + model_name
     print(f"Model directory {model_dir}")
     if not os.path.exists(model_dir):
         os.makedirs(model_dir, exist_ok=True)  # 如果父目录不存在，会创建父目录
+
     # --- derive model for inference / molecule optimization
     infer_dir = model_dir + "/infer/"
     if not os.path.exists(infer_dir):
@@ -289,20 +342,20 @@ def main():
         #     'dropout': [0.1]
         # }
     else:  # clf
-        hpo_configs = {
-            'res_block': [1, 2, 3],
-            'hidden_multiplier': [1],
-            'dropout': [0.1, 0.2, 0.3, 0.4],
-            'lr': [1e-4, 1e-3, 1e-2],
-            'weight_decay': [0.0, 1e-4, 1e-3, 1e-2]
-        }
         # hpo_configs = {
-        #     'res_block': [1],
+        #     'res_block': [1, 2, 3, 4],
         #     'hidden_multiplier': [1],
-        #     'dropout': [0.2],
-        #     'lr': [1e-4, 1e-3],
-        #     'weight_decay': [0.0, 1e-4]
+        #     'dropout': [0.1, 0.2, 0.3, 0.4],
+        #     'lr': [1e-4, 1e-3, 1e-2],
+        #     'weight_decay': [0.0, 1e-4, 1e-3]
         # }
+        hpo_configs = {
+            'res_block': [1],
+            'hidden_multiplier': [1],
+            'dropout': [0.2],
+            'lr': [1e-4, 1e-3],
+            'weight_decay': [0.0, 1e-4]
+        }
 
     # Generate all combinations
     keys = hpo_configs.keys()
@@ -316,7 +369,8 @@ def main():
     vocab = get_vocab(assay_dir, args.assay_id, toxdata_train, args.use_vocab)
     for i, config in tqdm(enumerate(configs), total=len(configs), desc="Testing configs"):
         print(f"Testing config {i+1}/{len(configs)}: {config}")
-        train_losses, valid_losses, prop_train_losses, prop_valid_losses = [], [], [], []
+        train_losses, valid_losses, prop_train_losses, prop_valid_losses= [], [], [], []
+        train_metrics, valid_metrics = [], []
         lr, weight_decay = config['lr'], config['weight_decay']
         del config['lr'], config['weight_decay']
         merged_param = {**model_params, **config}
@@ -325,26 +379,30 @@ def main():
 
         # Train
         print("Starting pretraining...")
-        train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, prop_train_losses, prop_valid_losses, \
-                epochs=args.epochs, lr=lr, weight_decay=weight_decay, device=device, beta=0)
+        propnn_frozen = train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, prop_train_losses, prop_valid_losses, \
+                toxdata_train.smiles, toxdata_train.val, toxdata_valid.smiles, toxdata_valid.val, task_type, \
+                train_metrics, valid_metrics, epochs=args.epochs, lr=lr, weight_decay=weight_decay, device=device, beta=0, patience=args.patience)
         print("Starting finetuning...")
         train_propnn(model, train_loader, valid_loader, train_losses, valid_losses, prop_train_losses, prop_valid_losses, \
-                epochs=args.epochs, lr=lr, weight_decay=weight_decay, device=device, beta=0.005)
+                toxdata_train.smiles, toxdata_train.val, toxdata_valid.smiles, toxdata_valid.val, task_type, \
+                train_metrics, valid_metrics, epochs=args.epochs, lr=lr, weight_decay=weight_decay, device=device, beta=0.005, patience=args.patience, propnn_frozen=propnn_frozen)
 
         # Evaluate
-        train_metrics = evaluate_propnn(model, toxdata_train.smiles, toxdata_train.val, device, task_type)
-        valid_metrics = evaluate_propnn(model, toxdata_valid.smiles, toxdata_valid.val, device, task_type)
+        train_metrics_final = evaluate_propnn(model, toxdata_train.smiles, toxdata_train.val, device, task_type)
+        valid_metrics_final = evaluate_propnn(model, toxdata_valid.smiles, toxdata_valid.val, device, task_type)
         torch.save(model.cpu().state_dict(), model_dir + "/model-config-" + str(i+1))
 
-        train_score = train_metrics['mse'] if task_type == 'reg' else train_metrics['aupr_hmean']
-        valid_score = valid_metrics['mse'] if task_type == 'reg' else valid_metrics['aupr_hmean']
+        train_score = train_metrics_final['mse'] if task_type == 'reg' else train_metrics_final['aupr_hmean']
+        valid_score = valid_metrics_final['mse'] if task_type == 'reg' else valid_metrics_final['aupr_hmean']
 
         # Plot losses
         plot_path = os.path.join(model_dir, f"all_losses_config_{i}.png")
         prop_plot_path = os.path.join(model_dir, f"predictor_losses_config_{i}.png")
+        metrics_plot_path = os.path.join(model_dir, f"prop_aupr_config_{i}.png")
         # plot_losses(train_losses, valid_losses, prop_train_losses, prop_valid_losses, config, plot_path)
         plot_losses2(train_losses, valid_losses, config, plot_path)
         plot_losses2(prop_train_losses, prop_valid_losses, config, prop_plot_path)
+        plot_metrics(train_metrics, valid_metrics, task_type, config, metrics_plot_path)
 
 
 
@@ -358,17 +416,20 @@ def main():
             f"config_{i}_valid_score": valid_score,
             f"config_{i}_plot": wandb.Image(plot_path),
             f"config_{i}_predictor_plot": wandb.Image(prop_plot_path),
+            f"config_{i}_metrics_plot": wandb.Image(metrics_plot_path),
         })
 
         results.append({
             'config': config,
             'final_train_loss': train_losses[-1],
             'final_valid_loss': valid_losses[-1],
-            'metrics': valid_metrics,
+            'metrics': valid_metrics_final,
             'train_losses': train_losses,
             'valid_losses': valid_losses,
             'prop_train_losses': prop_train_losses,
-            'prop_valid_losses': prop_valid_losses
+            'prop_valid_losses': prop_valid_losses,
+            'train_metrics': train_metrics,
+            'valid_metrics': valid_metrics
         })
 
         # Update best
