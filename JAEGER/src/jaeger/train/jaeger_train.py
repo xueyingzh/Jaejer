@@ -133,8 +133,7 @@ def train(csv_file, assay_id, num_threads, use_qualified, weight_decay, filter_m
     # --- derive vocab
     # icml18-jtnn/fast_jtnn/vocab.py, class Vocab,包含benzynes&penzynes
     vocab = get_vocab(assay_dir, assay_id, toxdata, use_vocab)
-    # exit(0)
-
+    # exit()
     # --- hardware settings
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")

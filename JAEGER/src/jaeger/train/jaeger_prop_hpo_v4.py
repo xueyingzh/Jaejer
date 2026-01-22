@@ -342,20 +342,20 @@ def main():
         #     'dropout': [0.1]
         # }
     else:  # clf
-        # hpo_configs = {
-        #     'res_block': [1, 2, 3, 4],
-        #     'hidden_multiplier': [1],
-        #     'dropout': [0.1, 0.2, 0.3, 0.4],
-        #     'lr': [1e-4, 1e-3, 1e-2],
-        #     'weight_decay': [0.0, 1e-4, 1e-3]
-        # }
         hpo_configs = {
-            'res_block': [1],
+            'res_block': [1, 2, 3, 4],
             'hidden_multiplier': [1],
-            'dropout': [0.2],
-            'lr': [1e-4, 1e-3],
-            'weight_decay': [0.0, 1e-4]
+            'dropout': [0.1, 0.2, 0.3, 0.4],
+            'lr': [1e-4, 1e-3, 1e-2],
+            'weight_decay': [0.0, 1e-4, 1e-3]
         }
+        # hpo_configs = {
+        #     'res_block': [1],
+        #     'hidden_multiplier': [1],
+        #     'dropout': [0.2],
+        #     'lr': [1e-4, 1e-3],
+        #     'weight_decay': [0.0, 1e-4]
+        # }
 
     # Generate all combinations
     keys = hpo_configs.keys()

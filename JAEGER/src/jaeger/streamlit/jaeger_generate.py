@@ -46,7 +46,8 @@ from jaeger.utils.jtvae_utils import (
     print_status)
 # --- JTVAE imports
 from jtnn import *
-from jtnn.jtprop_vae import JTPropVAE
+# from jtnn.jtprop_vae import JTPropVAE
+from jtnn.jtprop_vae_cross_att_gs import JTPropVAE
 from rdkit import DataStructs
 from rdkit.Chem import AllChem
 from sklearn.decomposition import PCA
@@ -856,6 +857,8 @@ def search_app(
             outfile = cmpd_dir + "/" + run_name + ".csv"
             summary_df.to_csv(outfile)
             sample_res.to_csv(outfile.replace('.csv', '_sample_vector.csv'))
+            summary_df.drop_duplicates(subset=['smiles'], inplace=True)
+            summary_df.to_csv(outfile.replace('.csv', '_dedup.csv'))
             os.chmod(outfile, 0o777)
             search_params = {
                 "cmpd": cmpd,

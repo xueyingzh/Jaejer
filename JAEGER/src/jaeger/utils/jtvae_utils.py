@@ -161,7 +161,9 @@ def derive_inference_model(
     wandb_name = "wandb_name",
 ):
     # from jtnn.jtprop_vae import JTPropVAE
-    from jtnn.jtprop_vae_cross_att import JTPropVAE
+    # from jtnn.jtprop_vae_cross_att import JTPropVAE
+    from jtnn.jtprop_vae_cross_att_gs import JTPropVAE
+
     shuffle = False
     run = None
     # run = wandb.init(
@@ -191,7 +193,7 @@ def derive_inference_model(
 
     print(f'props[:10]: {props[:10]}')
     dataset = ToxPropDataset(smiles, props)
-    batch_size = 8
+    batch_size = 32
     dataloader = data.DataLoader(
         dataset,
         batch_size=batch_size,
@@ -202,8 +204,16 @@ def derive_inference_model(
         drop_last=True,
     )
 
-    model = JTPropVAE(vocab, **model_params).to(device)            
-    optimizer = optim.Adam(model.parameters(), lr=base_lr, weight_decay=weight_decay)
+    pri_config = {
+            'res_block': 2,
+            'hidden_multiplier': [1],
+            'dropout': 0.3
+    }
+    lr, weight_decay = 1e-3, 1e-4
+
+    merged_param = {**model_params, **pri_config}
+    model = JTPropVAE(vocab, **merged_param).to(device)            
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = lr_scheduler.ExponentialLR(optimizer, 0.9)
     scheduler.step()
     
@@ -292,7 +302,7 @@ def cross_validate_jtvae(
         smiles = toxdata.smiles.loc[partition["train"]]
         props = toxdata.val.loc[partition["train"]]
         dataset = ToxPropDataset(smiles, props)
-        batch_size = 8
+        batch_size = 32
         dataloader = data.DataLoader(
             dataset,
             batch_size=batch_size,
@@ -303,7 +313,17 @@ def cross_validate_jtvae(
         )
         # model
         from jtnn.jtprop_vae import JTPropVAE
-        model = JTPropVAE(vocab, **model_params).to(device)
+
+        pri_config = {
+            'res_block': 2,
+            'hidden_multiplier': [1],
+            'dropout': 0.3,
+            'lr': 1e-3,
+            'weight_decay': 1e-4
+        }
+        merged_param = {**model_params, **pri_config}
+
+        model = JTPropVAE(vocab, **merged_param).to(device)
         optimizer = optim.Adam(model.parameters(), lr=base_lr, weight_decay=weight_decay)
         scheduler = lr_scheduler.ExponentialLR(optimizer, 0.9)
         scheduler.step()
@@ -387,42 +407,42 @@ def pre_train_jtvae(
                         node.cand_mols.append(node.label_mol)
             model.zero_grad()
             torch.cuda.empty_cache()
-            loss, kl_div, wacc, tacc, sacc, dacc, pacc = model(batch, beta=0, wandb_run=wandb_run, total_step_count=total_step_count)
+            loss, prop_loss = model(batch, beta=0)
             loss.backward()
             optimizer.step()
-            word_acc += wacc
-            topo_acc += tacc
-            assm_acc += sacc
-            steo_acc += dacc
-            prop_acc += pacc
-            if (it + 1) % PRINT_ITER == 0:
-                word_acc = word_acc / PRINT_ITER * 100
-                topo_acc = topo_acc / PRINT_ITER * 100
-                assm_acc = assm_acc / PRINT_ITER * 100
-                steo_acc = steo_acc / PRINT_ITER * 100
-                prop_acc = prop_acc / PRINT_ITER
-                if vis is not None:
-                    vis.plot_loss(word_acc, total_step_count, 1, f"{model_name}_word_acc", "word-acc")
-                    vis.plot_loss(prop_acc, total_step_count, 1, f"{model_name}_prop_acc", "mse")
-                print(
-                    "Epoch: %d, Step: %d, KL: %.1f, Word: %.2f, Topo: %.2f, Assm: %.2f, Steo: %.2f, Prop: %.4f"
-                    % (
-                        epoch,
-                        it + 1,
-                        kl_div,
-                        word_acc,
-                        topo_acc,
-                        assm_acc,
-                        steo_acc,
-                        prop_acc,
-                    ),
-                    file=my_log,
-                    flush=True,
-                )
-                word_acc, topo_acc, assm_acc, steo_acc, prop_acc = 0, 0, 0, 0, 0
+            # word_acc += wacc
+            # topo_acc += tacc
+            # assm_acc += sacc
+            # steo_acc += dacc
+            # prop_acc += pacc
+            # if (it + 1) % PRINT_ITER == 0:
+            #     word_acc = word_acc / PRINT_ITER * 100
+            #     topo_acc = topo_acc / PRINT_ITER * 100
+            #     assm_acc = assm_acc / PRINT_ITER * 100
+            #     steo_acc = steo_acc / PRINT_ITER * 100
+            #     prop_acc = prop_acc / PRINT_ITER
+            #     if vis is not None:
+            #         vis.plot_loss(word_acc, total_step_count, 1, f"{model_name}_word_acc", "word-acc")
+            #         vis.plot_loss(prop_acc, total_step_count, 1, f"{model_name}_prop_acc", "mse")
+            #     print(
+            #         "Epoch: %d, Step: %d, KL: %.1f, Word: %.2f, Topo: %.2f, Assm: %.2f, Steo: %.2f, Prop: %.4f"
+            #         % (
+            #             epoch,
+            #             it + 1,
+            #             kl_div,
+            #             word_acc,
+            #             topo_acc,
+            #             assm_acc,
+            #             steo_acc,
+            #             prop_acc,
+            #         ),
+            #         file=my_log,
+            #         flush=True,
+            #     )
+            #     word_acc, topo_acc, assm_acc, steo_acc, prop_acc = 0, 0, 0, 0, 0
             del loss
-            del kl_div
-            total_step_count = total_step_count + 1
+            # del kl_div
+            # total_step_count = total_step_count + 1
             torch.cuda.empty_cache()
         scheduler.step()
         print("learning rate: %.6f" % scheduler.get_lr()[0])
@@ -462,39 +482,39 @@ def train_jtvae(
                         node.cand_mols.append(node.label_mol)
             model.zero_grad()
             torch.cuda.empty_cache()
-            loss, kl_div, wacc, tacc, sacc, dacc, pacc = model(batch, beta, wandb_run, total_step_count=total_step_count)
+            loss, prop_loss = model(batch, beta)
             loss.backward()
             optimizer.step()
-            word_acc += wacc
-            topo_acc += tacc
-            assm_acc += sacc
-            steo_acc += dacc
-            prop_acc += pacc
-            if (it + 1) % PRINT_ITER == 0:
-                word_acc = word_acc / PRINT_ITER * 100
-                topo_acc = topo_acc / PRINT_ITER * 100
-                assm_acc = assm_acc / PRINT_ITER * 100
-                steo_acc = steo_acc / PRINT_ITER * 100
-                prop_acc /= PRINT_ITER
-                if vis is not None:
-                    vis.plot_loss(word_acc, total_step_count, 1, model_name, "word-acc")
-                    vis.plot_loss(prop_acc, total_step_count, 1, model_name, "mse")
-                print(
-                    "Epoch: %d, Step: %d, KL: %.1f, Word: %.2f, Topo: %.2f, Assm: %.2f, Steo: %.2f, Prop: %.4f"
-                    % (
-                        epoch,
-                        it + 1,
-                        kl_div,
-                        word_acc,
-                        topo_acc,
-                        assm_acc,
-                        steo_acc,
-                        prop_acc,
-                    ),
-                    file=my_log,
-                    flush=True,
-                )
-                word_acc, topo_acc, assm_acc, steo_acc, prop_acc = 0, 0, 0, 0, 0
+            # word_acc += wacc
+            # topo_acc += tacc
+            # assm_acc += sacc
+            # steo_acc += dacc
+            # prop_acc += pacc
+            # if (it + 1) % PRINT_ITER == 0:
+            #     word_acc = word_acc / PRINT_ITER * 100
+            #     topo_acc = topo_acc / PRINT_ITER * 100
+            #     assm_acc = assm_acc / PRINT_ITER * 100
+            #     steo_acc = steo_acc / PRINT_ITER * 100
+            #     prop_acc /= PRINT_ITER
+            #     if vis is not None:
+            #         vis.plot_loss(word_acc, total_step_count, 1, model_name, "word-acc")
+            #         vis.plot_loss(prop_acc, total_step_count, 1, model_name, "mse")
+            #     print(
+            #         "Epoch: %d, Step: %d, KL: %.1f, Word: %.2f, Topo: %.2f, Assm: %.2f, Steo: %.2f, Prop: %.4f"
+            #         % (
+            #             epoch,
+            #             it + 1,
+            #             kl_div,
+            #             word_acc,
+            #             topo_acc,
+            #             assm_acc,
+            #             steo_acc,
+            #             prop_acc,
+            #         ),
+            #         file=my_log,
+            #         flush=True,
+            #     )
+            #     word_acc, topo_acc, assm_acc, steo_acc, prop_acc = 0, 0, 0, 0, 0
             # if (it + 1) % 1500 == 0:  # Fast annealing
             #    # does this make sense? With the smaller datasets
             #    # we don't get to 1500? Why is this happening?
@@ -509,8 +529,8 @@ def train_jtvae(
             #    #    model_dir + "/model-ref.iter-%d-%d" % (epoch, it + 1),
             #    #)
             #    model.to(device)
-            del loss
-            del kl_div
+            # del loss
+            # del kl_div
             total_step_count = total_step_count + 1
         scheduler.step()
         print("learning rate: %.6f" % scheduler.get_lr()[0])
@@ -588,28 +608,32 @@ def evaluate_predictions_model(
         sml = smiles.loc[idx]
         y = props.loc[idx]
 
-        out, vec = model.predict(sml)  # 模型输出：回归→tensor；分类→logits/prob
+        try:
+            out, vec = model.predict(sml)  # 模型输出：回归→tensor；分类→logits/prob
 
-        if task == "reg":
-            pred = float(out.item())
-            coords[k, 0] = float(y)
-            coords[k, 1] = pred
+            if task == "reg":
+                pred = float(out.item())
+                coords[k, 0] = float(y)
+                coords[k, 1] = pred
 
-        else:  # 分类
-            out_np = out.detach().cpu().numpy().ravel()
-            # 若输出是 logits → 做 softmax/sigmoid
-            if len(out_np) == 1:
-                prob = 1 / (1 + np.exp(-out_np[0]))
-                pred = int(prob >= 0.5)
-            else:
-                exp = np.exp(out_np - out_np.max())
-                prob_vec = exp / exp.sum()
-                prob = float(prob_vec[1])
-                pred = int(prob_vec.argmax())
+            else:  # 分类
+                out_np = out.detach().cpu().numpy().ravel()
+                # 若输出是 logits → 做 softmax/sigmoid
+                if len(out_np) == 1:
+                    prob = 1 / (1 + np.exp(-out_np[0]))
+                    pred = int(prob >= 0.5)
+                else:
+                    exp = np.exp(out_np - out_np.max())
+                    prob_vec = exp / exp.sum()
+                    prob = float(prob_vec[1])
+                    pred = int(prob_vec.argmax())
 
-            y_true.append(int(y))
-            y_pred.append(pred)
-            y_prob.append(prob)
+                y_true.append(int(y))
+                y_pred.append(pred)
+                y_prob.append(prob)
+
+        except Exception as e:
+            print(f"Error processing SMILES {sml}: {e}")
 
     model = model.train()
 
@@ -1280,7 +1304,7 @@ def reconstruct(csv_file, assay_id, filter_mols=True,
                                             convert_to_pac50 = pac50,
                                             binary_fp = binary_fp)
     dataset = ToxPropDataset(toxdata.smiles, toxdata.val)
-    batch_size = 8
+    batch_size = 32
     dataloader = data.DataLoader(
         dataset,
         batch_size=batch_size,

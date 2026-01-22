@@ -45,7 +45,9 @@ import argparse
 from jtnn import *
 from jtnn.chemutils import *
 # from jtnn.jtprop_vae import JTPropVAE
-from jtnn.jtprop_vae_cross_att import JTPropVAE
+# from jtnn.jtprop_vae_cross_att import JTPropVAE
+from jtnn.jtprop_vae_cross_att_gs import JTPropVAE
+
 from jaeger.utils.jtvae_utils import *
 
 
@@ -98,6 +100,7 @@ def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name =
     # Print the model architecture
     print("Model Architecture:")
     print(model)
+    # exit()
 
     # Calculate and print the total number of parameters
     total_params = sum(p.numel() for p in model.parameters())
@@ -105,15 +108,20 @@ def validate(csv_file, assay_id, use_qualified, filter_mols = True, wandb_name =
 
     # --- CHECK PREDICTIONS
     scores, coords = evaluate_predictions_model(model, toxdata.smiles, toxdata.val, None, wandb_name)
-    coords_df = pd.DataFrame(data=coords, columns=["gt", "pred"])
-    coords_df.to_csv(model_dir + "/predictions_training.csv")
+    # coords_df = pd.DataFrame(data=coords, columns=["gt", "pred"])
+    coords_df = pd.DataFrame(data=coords, columns=list(coords.keys()))
+    input_df = pd.read_csv(csv_file)
+    coords_df = pd.concat([input_df.reset_index(drop=True), coords_df.reset_index(drop=True)], axis=1)
+    input_file = os.path.basename(csv_file).replace(".csv", "")
+    coords_df.to_csv(model_dir + f"/predictions_{input_file}.csv")
+    print(f"Saved predictions to: {model_dir}/predictions_{input_file}.csv")
 
     # --- GET EMBEDDINGS
     # These two could be merged, I think
     from jaeger.utils.jtvae_utils import get_embeddings
     vectors = get_embeddings(model, toxdata)
     latent = pd.DataFrame.from_dict(vectors, orient="index")    
-    latent.to_csv(model_dir + "/embeddings_training.csv")
+    latent.to_csv(model_dir + f"/embeddings_{input_file}.csv")
 
 
 # --- utils

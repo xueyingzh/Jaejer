@@ -39,7 +39,7 @@ import torch
 # --- JTVAE imports
 from jtnn import *
 # from jtnn.jtprop_vae import JTPropVAE
-from jtnn.jtprop_vae_cross_att import JTPropVAE
+from jtnn.jtprop_vae_cross_att_gs import JTPropVAE
 
 # --- TOXSQUAD imports
 from toxsquad.data import modelling_data_from_csv
@@ -132,7 +132,18 @@ def get_vocabulary(assay_dir, assay_id, toxdata):
 def get_model(vocab, model_params, device, infer_dir):
     torch.manual_seed(777)
     model = JTPropVAE(vocab, **model_params).to(device)
-    mol = torch.load(infer_dir + "/model-ref.iter-35")
+    import os
+    files = [
+        (f, os.path.getmtime(os.path.join(infer_dir, f)))
+        for f in os.listdir(infer_dir)
+        if os.path.isfile(os.path.join(infer_dir, f)) and f.startswith("model")
+    ]
+    # 按修改时间排序（最新文件在最后）
+    files_sorted = sorted(files, key=lambda x: x[1])
+    # 取最后一个（最新修改的）
+    model_file = files_sorted[-1][0] if files_sorted else None
+    print(f"Using model: {model_file}")
+    mol = torch.load(infer_dir + "/" + model_file)
     model.load_state_dict(mol)
     model = model.eval()
     return model
