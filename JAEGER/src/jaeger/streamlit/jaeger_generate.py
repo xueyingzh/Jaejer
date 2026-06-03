@@ -118,7 +118,15 @@ def get_svg(in_smile, visdom=False, res=400):
 import argparse
 
 
-def decode(model, new_samples, show_st=False, calcu_log = False):
+def decode(
+    model,
+    new_samples,
+    show_st=False,
+    calcu_log=False,
+    scaffold_smiles=None,
+    scaffold_smarts=None,
+    strict_scaffold=False,
+):
     n_samples = len(new_samples)
     
     import torch
@@ -160,7 +168,18 @@ def decode(model, new_samples, show_st=False, calcu_log = False):
         # print_status(i, n_samples)
         tree_vec, mol_vec = torch.chunk(new_samples[i].reshape(1,-1), 2, dim=1)
 
-        more_smiles = model.decode(tree_vec, mol_vec, prob_decode=False, calcu_log = calcu_log)
+        if scaffold_smiles is not None or scaffold_smarts is not None:
+            more_smiles = model.decode_with_scaffold(
+                tree_vec,
+                mol_vec,
+                scaffold_smiles=scaffold_smiles,
+                scaffold_smarts=scaffold_smarts,
+                prob_decode=False,
+                calcu_log=calcu_log,
+                strict=strict_scaffold,
+            )
+        else:
+            more_smiles = model.decode(tree_vec, mol_vec, prob_decode=False, calcu_log=calcu_log)
         new_smiles.append(more_smiles)
         # break
     
